@@ -3,7 +3,7 @@
 //layout (early_fragment_tests) in;
 
 layout (binding = 0, r32ui) uniform uimage2D headPointers;
-// layout (binding = 1, rgba32ui) uniform coherent uimageBuffer listBuffer;
+layout (binding = 1, rgba32ui) uniform coherent uimageBuffer listBuffer;
 
 layout(binding = 0, offset = 0) uniform atomic_uint listCounter;
 
@@ -27,7 +27,7 @@ void main(void)
 		gl_FragDepth = gl_FragCoord.z - 0.000001f  * abs(TexCoords.y - 0.5);
 	}
 	FragColor = vec4(c, c, c, 1.0f);
-	//FragColor = vec4(1.0f, 0.0f, 0.0f, 1.0f);
+	FragColor = vec4(1.0f, 0.0f, 0.0f, 1.0f);
 
 	uint index = atomicCounterIncrement(listCounter);
 	uint oldHead = imageAtomicExchange(headPointers, ivec2(gl_FragCoord.xy), index);

@@ -64,6 +64,7 @@ int main()
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 4);
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+	//glfwWindowHint(GLFW_DECORATED, false);//remove title bar for debugging(otherwise the minimum width is too big)
 	//glfwWindowHint(GLFW_SAMPLES, 4);
 
 	// glfw window creation
@@ -94,6 +95,7 @@ int main()
 	// configure global opengl state
 	// -----------------------------
 	glEnable(GL_DEPTH_TEST);
+	glDisable(GL_MULTISAMPLE);
 	//glEnable(GL_MULTISAMPLE);
 	//draw multiple instances using a single call
 	glEnable(GL_PRIMITIVE_RESTART);
@@ -116,13 +118,18 @@ int main()
 
 	// load models
 	// -----------
-	//Mesh mesh("res/flow_data/cyclone.obj");
-	Mesh mesh("res/flow_data/test.obj");
+	Mesh mesh("res/flow_data/cyclone.obj");
+	//Mesh mesh("res/flow_data/test.obj");
+
+
+	GLint max_buffer_size;
+	glGetIntegerv(GL_MAX_TEXTURE_BUFFER_SIZE, &max_buffer_size);
+	cout << "The maximum texture buffer size is " << max_buffer_size << " bytes." << endl;
 
 	// render loop
 	// -----------
-	bool show = true;
 	while (!glfwWindowShouldClose(window))
+	//for(int ti = 0; ti < 5; ++ti)
 	{
 		// per-frame time logic
 		// --------------------
@@ -142,8 +149,9 @@ int main()
 		glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-									 //reset atomic counter
+		//reset atomic counter
 		setAtomicCounter(0);
+		//cout << "list counter: " << readAtomicCounter() << endl;
 
 		//clear head pointer
 		glBindBuffer(GL_PIXEL_UNPACK_BUFFER, mesh.PBO_CLR_HEADER);
@@ -152,7 +160,7 @@ int main()
 		glBindTexture(GL_TEXTURE_2D, 0);
 		// Bind head-pointer image for read-write
 		glBindImageTexture(0, mesh.TEX_HEADER, 0, GL_FALSE, 0, GL_READ_WRITE, GL_R32UI);
-		// Bind linked-list buffer for write
+		 //Bind linked-list buffer for write
 		//glBindImageTexture(1, mesh.LT, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32UI);
 
 		buildShader.use();
@@ -166,8 +174,7 @@ int main()
 		glm::mat4 modelViewProjectionMatrix = projection * view * model;
 		buildShader.setVec3("viewDirection", camera.Front);
 		buildShader.setMat4("modelViewProjectionMatrix", modelViewProjectionMatrix);
-		//buildShader.setFloat("stripWidth", 2 * 2.0f / SCR_WIDTH);//strip width
-		buildShader.setFloat("stripWidth", 2 * 10.0f / SCR_WIDTH);//strip width
+		buildShader.setFloat("stripWidth", 2 * 2.0f / SCR_WIDTH);//strip width
 
 		//rotate
 		glm::mat4 rotMat2;
@@ -179,39 +186,39 @@ int main()
 
 		mesh.Draw();
 
-		glBindTexture(GL_TEXTURE_2D, mesh.TEX_HEADER);
-		glBindBuffer(GL_PIXEL_PACK_BUFFER, mesh.PBO_CLR_HEADER);
-		glGetTexImage(GL_TEXTURE_2D, 0, GL_RED_INTEGER, GL_UNSIGNED_INT, (GLvoid*)0);
-		GLuint *heads;//for clear head pointers
-		heads = (GLuint *)glMapBuffer(GL_PIXEL_PACK_BUFFER, GL_READ_ONLY);
-		if (heads == nullptr)
-		{
-			cout << "null heads pointer" << endl;
-			//cin.get();
-		}
-		else
-		{
-			ofstream out("out.txt");
-			for (int i = 0; i < SCR_HEIGHT; ++i)
-			{
-				for (int j = 0; j < SCR_WIDTH; ++j)
-				{
-					out << heads[i * SCR_HEIGHT + j] << '\t';
-					//out << heads[0] << ' ' << endl;
-				}
-				out << endl;
-			}
-		}
-		glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
-		glBindTexture(GL_TEXTURE_2D, 0);
+		//glBindTexture(GL_TEXTURE_2D, mesh.TEX_HEADER);
+		//glBindBuffer(GL_PIXEL_PACK_BUFFER, mesh.PBO_READ_HEADER);
+		//glGetTexImage(GL_TEXTURE_2D, 0, GL_RED_INTEGER, GL_UNSIGNED_INT, (GLvoid*)0);
+		//GLuint *heads;//for clear head pointers
+		//heads = (GLuint *)glMapBuffer(GL_PIXEL_PACK_BUFFER, GL_READ_ONLY);
+		//if (heads == nullptr)
+		//{
+		//	cout << "null heads pointer" << endl;
+		//	//cin.get();
+		//}
+		//else
+		//{
+		//	ofstream out("out.txt");
+		//	for (int i = 0; i < SCR_HEIGHT; ++i)
+		//	{
+		//		for (int j = 0; j < SCR_WIDTH; ++j)
+		//		{
+		//			out << heads[i * SCR_HEIGHT + j] << '\t';
+		//			//out << heads[0] << ' ' << endl;
+		//		}
+		//		out << endl;
+		//	}
+		//}
+		//glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
+		//glBindTexture(GL_TEXTURE_2D, 0);
 
-		cout << "list counter: " << readAtomicCounter() << endl;
+		//cout << "list counter: " << readAtomicCounter() << endl;
 
 		// glfw: swap buffers and poll IO events (keys pressed/released, mouse moved etc.)
 		// -------------------------------------------------------------------------------
 		glfwSwapBuffers(window);
 		glfwPollEvents();
-		break;
+		//break;
 	}
 	cin.get();
 	// glfw: terminate, clearing all previously allocated GLFW resources.

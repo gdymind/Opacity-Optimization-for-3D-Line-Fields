@@ -5,7 +5,7 @@
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
-#include "Shader.h"
+#include "Shader.hpp"
 
 #include <string>
 #include <cstdio>
@@ -20,7 +20,7 @@ using namespace std;
 
 const unsigned int RESTART_NUM = 0x5FFFFFu;//primitive restart number
 // settings
-const unsigned int SCR_WIDTH = 200;
+const unsigned int SCR_WIDTH = 400;
 const unsigned int SCR_HEIGHT = SCR_WIDTH;
 const unsigned int TOTAL_PIXELS = SCR_WIDTH * SCR_HEIGHT;
 
@@ -42,9 +42,7 @@ public:
 	vector<IndexType> lines;
 	IndexType indices;
 
-	//int fragmentNum = 40000000;
-	int fragmentNum = 7000000;
-	//int frgmentNum = 640000;
+	int fragmentNum = 8000000;
 
 	GLuint VAO, VBO, EBO; //vertex array object, vertex buffer object, element buffer object
 
@@ -52,7 +50,8 @@ public:
 	GLuint TEX_HEADER;//head pointer texture
 	GLuint PBO_CLR_HEADER;//pixel buffer object as a head pointer initializer
 	GLuint PBO_READ_HEADER;
-	GLuint SBO;//fragment storage buffer object
+
+	GLuint SBO_LIST;//fragment storage buffer object
 	GLuint TEX_LIST;//linked list texture
 
 	/*  Functions   */
@@ -231,10 +230,12 @@ private:
 		glGenBuffers(1, &EBO);
 
 		glGenBuffers(1, &ABO);
+
 		glGenTextures(1, &TEX_HEADER);
 		glGenBuffers(1, &PBO_CLR_HEADER);
 		glGenBuffers(1, &PBO_READ_HEADER);
-		glGenBuffers(1, &SBO);
+
+		glGenBuffers(1, &SBO_LIST);
 		glGenTextures(1, &TEX_LIST);
 
 		//bind VAO
@@ -265,22 +266,22 @@ private:
 		memset(data, 0x0, TOTAL_PIXELS * sizeof(GLuint));//0xff->list end
 		glUnmapBuffer(GL_PIXEL_UNPACK_BUFFER);
 
-		/*glBindBuffer(GL_PIXEL_PACK_BUFFER, PBO_READ_HEADER);
-		glBufferData(GL_PIXEL_PACK_BUFFER, TOTAL_PIXELS * sizeof(GLuint), NULL, GL_DYNAMIC_DRAW);*/
+		glBindBuffer(GL_PIXEL_PACK_BUFFER, PBO_READ_HEADER);
+		glBufferData(GL_PIXEL_PACK_BUFFER, TOTAL_PIXELS * sizeof(GLuint), NULL, GL_DYNAMIC_COPY);
 
-		////set SBO: linked list storage buffer object
-		//glBindBuffer(GL_TEXTURE_BUFFER, SBO);
-		//glBufferData(GL_TEXTURE_BUFFER, fragmentNum * sizeof(glm::vec4), NULL, GL_DYNAMIC_COPY);
-		//glBindBuffer(GL_TEXTURE_BUFFER, 0);
+		//set SBO: linked list storage buffer object
+		glBindBuffer(GL_TEXTURE_BUFFER, SBO_LIST);
+		glBufferData(GL_TEXTURE_BUFFER, fragmentNum * sizeof(glm::vec4), NULL, GL_DYNAMIC_COPY);
+		glBindBuffer(GL_TEXTURE_BUFFER, 0);
 
-		////set LT: linked list texture
-		//glActiveTexture(GL_TEXTURE1);
-		//glBindTexture(GL_TEXTURE_BUFFER, LT);
-		////glTexBuffer(GL_TEXTURE_BUFFER, GL_RGBA32UI, SBO);
-		////attention! real format--> float
-		//glTexBuffer(GL_TEXTURE_BUFFER, GL_RGBA32F, SBO);
-		//glBindTexture(GL_TEXTURE_BUFFER, 0);
-		//glBindImageTexture(1, LT, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
+		//set TEX_LIST: linked list texture
+		glActiveTexture(GL_TEXTURE1);
+		glBindTexture(GL_TEXTURE_BUFFER, TEX_LIST);
+		//glTexBuffer(GL_TEXTURE_BUFFER, GL_RGBA32UI, SBO);
+		//attention! real format--> float
+		glTexBuffer(GL_TEXTURE_BUFFER, GL_RGBA32F, SBO_LIST);
+		glBindTexture(GL_TEXTURE_BUFFER, 0);
+		glBindImageTexture(1, TEX_LIST, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
 
 		//set VBO
 		glBindBuffer(GL_ARRAY_BUFFER, VBO);
