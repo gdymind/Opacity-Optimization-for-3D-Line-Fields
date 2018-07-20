@@ -1,9 +1,9 @@
 #version 440 core
 
-layout (early_fragment_tests) in;
+//layout (early_fragment_tests) in;
 
 layout (binding = 0, r32ui) uniform uimage2D headPointers;
-layout (binding = 1, rgba32ui) uniform writeonly uimageBuffer listBuffer;
+// layout (binding = 1, rgba32ui) uniform coherent uimageBuffer listBuffer;
 
 layout(binding = 0, offset = 0) uniform atomic_uint listCounter;
 
@@ -15,6 +15,7 @@ in float weight;
 void main(void)
 {
 	//set Fragment Color
+	gl_FragDepth = gl_FragCoord.z;
 	float c;
 	if (abs(TexCoords.y - 0.5f) < 0.25f)//center
 	{
@@ -23,23 +24,35 @@ void main(void)
 	else
 	{
 		c = 1.0f;
-		gl_FragDepth = -gl_FragCoord.z - 0.001f * 2 * abs(TexCoords.y - 0.5);
+		gl_FragDepth = gl_FragCoord.z - 0.000001f  * abs(TexCoords.y - 0.5);
 	}
 	FragColor = vec4(c, c, c, 1.0f);
+	//FragColor = vec4(1.0f, 0.0f, 0.0f, 1.0f);
 
-	uint index; = atomicCounterIncrement(listCounter);
+	uint index = atomicCounterIncrement(listCounter);
+	uint oldHead = imageAtomicExchange(headPointers, ivec2(gl_FragCoord.xy), index);
 
-	uint oldHead = imageAtomicExchange(headPointers, ivec2(gl_FragCoord.xy), uint(index));
+	// if(gl_FragCoord.x < 100) FragColor = vec4(1.0f, 0.0f, 0.0f, 1.0f);
 
-	//x: next pointer
-	//y: depth
-	//z: color
-	//w: weight
+	// for(uint i = 0; i < 200; ++i)
+	// {
+	// 	for(uint j = 0; j < 200; ++j)
+	// 	{
+	// 		if(imageAtomicExchange(headPointers, ivec2(i, j), uint(0)) > 0u)
+	// 			atomicCounterIncrement(listCounter);
+	// 	}
+	// }
+
+	// uint oldHead = imageAtomicExchange(headPointers, ivec2(0, 0), 10u);
+	// if (imageAtomicExchange(headPointers, ivec2(0, 0), 10u) > 0u)
+	// 	FragColor = vec4(1.0f, 0.0f, 0.0f, 1.0f);
+
+	// x,y,z,2: next pointer, depth, color, weight
 	uvec4 node;
 	node.x = oldHead;
-	node.y = floatBitsToUint(gl_FragCoord.z);
+	node.y = floatBitsToUint(gl_FragDepth);
 	node.z = floatBitsToUint(c);
-	node.w = weight;
+	node.w = floatBitsToUint(weight);
 
 	imageStore(listBuffer, int(index), node);
 

@@ -5,19 +5,19 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
-#include "Shader.h"
-#include "Camera.h"
-#include "Mesh.h"
+#include "Shader.hpp"
+#include "Camera.hpp"
+#include "Mesh.hpp"
+
 #include <iostream>
 
-//MATLAB header files
+//MATLAB related
 #include "engine.h"
-
 #pragma comment(lib, "libeng.lib")
 #pragma comment(lib, "libmx.lib")
 #pragma comment(lib, "libmat.lib")
 
-
+//callbacks
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void mouse_callback(GLFWwindow* window, double xpos, double ypos);
 //void mouse_button_callback(GLFWwindow* window, int button, int action, int mods);
@@ -53,6 +53,8 @@ void setAtomicCounter(GLuint val)
 	glUnmapBuffer(GL_ATOMIC_COUNTER_BUFFER);
 }
 
+const int MAX_SEGMENTS_NUM = 5000;
+float H[MAX_SEGMENTS_NUM][MAX_SEGMENTS_NUM];
 
 int main()
 {
@@ -62,6 +64,7 @@ int main()
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 4);
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+	//glfwWindowHint(GLFW_SAMPLES, 4);
 
 	// glfw window creation
 	// --------------------
@@ -77,15 +80,13 @@ int main()
 	glfwSetCursorPosCallback(window, mouse_callback);
 	glfwSetScrollCallback(window, scroll_callback);
 
-	// tell GLFW to capture our mouse
-	//glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-	//glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
 
 	// glad: load all OpenGL function pointers
 	// ---------------------------------------
 	if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
 	{
 		std::cout << "Failed to initialize GLAD" << std::endl;
+		cin.get();
 		return -1;
 	}
 
@@ -93,51 +94,35 @@ int main()
 	// configure global opengl state
 	// -----------------------------
 	glEnable(GL_DEPTH_TEST);
-	// draw in wireframe
-	//glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-
+	//glEnable(GL_MULTISAMPLE);
+	//draw multiple instances using a single call
 	glEnable(GL_PRIMITIVE_RESTART);
 	glPrimitiveRestartIndex(RESTART_NUM);
 
-	//glEnable(GL_POLYGON_SMOOTH);
-
-	//glEnable(GL_LINE_SMOOTH);
-	//glEnable(GL_BLEND);
-	//glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);//GL_ONE_MINUS_SRC_ALPHA
-	//glHint(GL_LINE_SMOOTH_HINT, GL_NICEST);
-
-	//glEnable(GL_POLYGON_SMOOTH);
-	//glEnable(GL_BLEND);
-	////glBlendFunc(GL_SRC_ALPHA_SATURATE, GL_ONE_MINUS_SRC_ALPHA);
-	//glBlendFunc(GL_SRC_ALPHA_SATURATE, GL_ONE_MINUS_SRC_ALPHA);
-	//glHint(GL_POLYGON_SMOOTH_HINT, GL_DONT_CARE);
-
-
-	Engine *ep;
-	ep = engOpen("\0");
+	//Engine *ep;//engine for MATLAB
 	//// open engine
 	//if (!(ep = engOpen("\0")))
 	//{
-	//	fprintf(stderr, "\nCan't start MATLAB engine\n");
+	//	fprintf(stderr, "Can't start MATLAB engine\n");
+	//	cin.get();
 	//	return EXIT_FAILURE;
 	//}
-
 
 	// build and compile shaders
 	// -------------------------
 	Shader buildShader("build.vs", "build.fs");
-	Shader resolveShader("resolve.vs", "resolve.fs");
+	//Shader resolveShader("resolve.vs", "resolve.fs");
+	//Shader shader("ori.vs", "ori.fs");
 
 	// load models
 	// -----------
-	Mesh mesh("res/flow_data/cyclone.obj");
-	//Mesh mesh("res/flow_data/test.obj");
+	//Mesh mesh("res/flow_data/cyclone.obj");
+	Mesh mesh("res/flow_data/test.obj");
 
 	// render loop
 	// -----------
 	bool show = true;
 	while (!glfwWindowShouldClose(window))
-	for(int bb = 0; bb < 10; ++bb)
 	{
 		// per-frame time logic
 		// --------------------
@@ -149,30 +134,28 @@ int main()
 		// -----
 		processInput(window);
 
-		// render
-		// ------
+		// build linked list
+		// ----------------
+
+		//glDisable(GL_DEPTH_TEST);
+		//glDisable(GL_CULL_FACE);
 		glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-		// enable build shader
-		buildShader.use();
-
-		//clear head pointer
-		glBindBuffer(GL_PIXEL_UNPACK_BUFFER, mesh.HI);
-		glBindTexture(GL_TEXTURE_2D, mesh.HT);
-		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, SCR_WIDTH, SCR_HEIGHT, GL_RED_INTEGER, GL_UNSIGNED_INT, NULL);
-		glBindTexture(GL_TEXTURE_2D, 0);
-
-		// Bind head-pointer image for read-write
-		glBindImageTexture(0, mesh.HT, 0, GL_FALSE, 0, GL_READ_WRITE, GL_R32UI);
-
-		// Bind linked-list buffer for write
-		glBindImageTexture(1, mesh.LT, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32UI);
-
+									 //reset atomic counter
 		setAtomicCounter(0);
 
-		//enable resolve shader before setting uniforms
-		resolveShader.use();
+		//clear head pointer
+		glBindBuffer(GL_PIXEL_UNPACK_BUFFER, mesh.PBO_CLR_HEADER);
+		glBindTexture(GL_TEXTURE_2D, mesh.TEX_HEADER);
+		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, SCR_WIDTH, SCR_HEIGHT, GL_RED_INTEGER, GL_UNSIGNED_INT, NULL);
+		glBindTexture(GL_TEXTURE_2D, 0);
+		// Bind head-pointer image for read-write
+		glBindImageTexture(0, mesh.TEX_HEADER, 0, GL_FALSE, 0, GL_READ_WRITE, GL_R32UI);
+		// Bind linked-list buffer for write
+		//glBindImageTexture(1, mesh.LT, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32UI);
+
+		buildShader.use();
 
 		// view/projection/model matrix
 		glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.001f, 5.0f);
@@ -181,11 +164,10 @@ int main()
 		model = glm::translate(model, glm::vec3(0.0f, 0.0f, 0.0f)); // translate it down so it's at the center of the scene
 		model = glm::scale(model, glm::vec3(1.0f, 1.0f, 1.0f));	// it's a bit too big for our scene, so scale it down
 		glm::mat4 modelViewProjectionMatrix = projection * view * model;
-		resolveShader.setVec3("viewDirection", camera.Front);
-		resolveShader.setMat4("modelViewProjectionMatrix", modelViewProjectionMatrix);
-
-		//strip width
-		resolveShader.setFloat("stripWidth", 2 * 2.0f / SCR_WIDTH);
+		buildShader.setVec3("viewDirection", camera.Front);
+		buildShader.setMat4("modelViewProjectionMatrix", modelViewProjectionMatrix);
+		//buildShader.setFloat("stripWidth", 2 * 2.0f / SCR_WIDTH);//strip width
+		buildShader.setFloat("stripWidth", 2 * 10.0f / SCR_WIDTH);//strip width
 
 		//rotate
 		glm::mat4 rotMat2;
@@ -193,18 +175,45 @@ int main()
 		rotMat2 = glm::rotate(rotMat2, rotateVertical, glm::vec3(1.0f, 0.0f, 0.0f));
 		rotateHorizontal = rotateVertical = 0.0f;
 		rotMat = rotMat2 * rotMat;
-		resolveShader.setMat4("transform", rotMat);
+		buildShader.setMat4("transform", rotMat);
 
 		mesh.Draw();
 
-		//cout << "fragments number: " << readAtomicCounter() << endl;
+		glBindTexture(GL_TEXTURE_2D, mesh.TEX_HEADER);
+		glBindBuffer(GL_PIXEL_PACK_BUFFER, mesh.PBO_CLR_HEADER);
+		glGetTexImage(GL_TEXTURE_2D, 0, GL_RED_INTEGER, GL_UNSIGNED_INT, (GLvoid*)0);
+		GLuint *heads;//for clear head pointers
+		heads = (GLuint *)glMapBuffer(GL_PIXEL_PACK_BUFFER, GL_READ_ONLY);
+		if (heads == nullptr)
+		{
+			cout << "null heads pointer" << endl;
+			//cin.get();
+		}
+		else
+		{
+			ofstream out("out.txt");
+			for (int i = 0; i < SCR_HEIGHT; ++i)
+			{
+				for (int j = 0; j < SCR_WIDTH; ++j)
+				{
+					out << heads[i * SCR_HEIGHT + j] << '\t';
+					//out << heads[0] << ' ' << endl;
+				}
+				out << endl;
+			}
+		}
+		glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
+		glBindTexture(GL_TEXTURE_2D, 0);
+
+		cout << "list counter: " << readAtomicCounter() << endl;
 
 		// glfw: swap buffers and poll IO events (keys pressed/released, mouse moved etc.)
 		// -------------------------------------------------------------------------------
 		glfwSwapBuffers(window);
 		glfwPollEvents();
+		break;
 	}
-
+	cin.get();
 	// glfw: terminate, clearing all previously allocated GLFW resources.
 	// ------------------------------------------------------------------
 	glfwTerminate();
