@@ -5,7 +5,7 @@
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
-#include "Shader.hpp"
+#include "Include/Shader.hpp"
 
 #include <string>
 #include <cstdio>
@@ -20,9 +20,10 @@ using namespace std;
 
 const unsigned int RESTART_NUM = 0x5FFFFFu;//primitive restart number
 // settings
-const unsigned int SCR_WIDTH = 400;
-const unsigned int SCR_HEIGHT = SCR_WIDTH;
+const unsigned int SCR_WIDTH = 10;
+const unsigned int SCR_HEIGHT = 5;// SCR_WIDTH;
 const unsigned int TOTAL_PIXELS = SCR_WIDTH * SCR_HEIGHT;
+const unsigned int MAX_FRAGMENT_NUM = 8000000;
 
 struct Vertex {
 	glm::vec3 Position;
@@ -42,17 +43,26 @@ public:
 	vector<IndexType> lines;
 	IndexType indices;
 
-	int fragmentNum = 8000000;
+	int segPerLine = 8;
+
+	int segmentNum = 0;
 
 	GLuint VAO, VBO, EBO; //vertex array object, vertex buffer object, element buffer object
 
 	GLuint ABO = 0; //atomic buffer object, the corresponding atomic counter is for the linked list
+
 	GLuint TEX_HEADER;//head pointer texture
-	GLuint PBO_CLR_HEADER;//pixel buffer object as a head pointer initializer
-	GLuint PBO_READ_HEADER;
+	GLuint PBO_SET_HEAD;//pixel buffer object as a head pointer initializer
+	GLuint PBO_READ_HEAD;
 
 	GLuint SBO_LIST;//fragment storage buffer object
 	GLuint TEX_LIST;//linked list texture
+
+	GLuint TEX_VISIT;
+	GLuint PBO_SET_VISIT;
+
+	//GLuint TEX_MAT_H;
+	//GLuint PBO_READ_MAT_H;
 
 	/*  Functions   */
 	// constructor, expects a filepath to a 3D model.
@@ -202,9 +212,9 @@ private:
 					4		6
 			*/
 			//one line -> eight segments
-			float diff = 8.0f / line.size();			
+			float diff = (float)segPerLine / line.size();
 			float startWeight = curWeight + 0.5f;
-			float endWeight = startWeight + 7.0f;
+			float endWeight = startWeight + segPerLine - 1.0f;
 			//assume there're no short lines
 			/*if (line.size() < 8)//no segmentation for short lines
 			{
@@ -220,6 +230,8 @@ private:
 				curWeight += diff;
 			}
 		}
+
+		segmentNum = lines.size() * segPerLine;
 	}
 
 	void setupMesh()
@@ -232,21 +244,24 @@ private:
 		glGenBuffers(1, &ABO);
 
 		glGenTextures(1, &TEX_HEADER);
-		glGenBuffers(1, &PBO_CLR_HEADER);
-		glGenBuffers(1, &PBO_READ_HEADER);
+		glGenBuffers(1, &PBO_SET_HEAD);
+		glGenBuffers(1, &PBO_READ_HEAD);
 
 		glGenBuffers(1, &SBO_LIST);
 		glGenTextures(1, &TEX_LIST);
 
-		//bind VAO
-		glBindVertexArray(VAO);
+		glGenTextures(1, &TEX_VISIT);
+		glGenBuffers(1, &PBO_SET_VISIT);
+
+		//glGenTextures(1, &TEX_MAT_H);
+		//glGenBuffers(1, &PBO_READ_MAT_H);
 
 		//set ABO: atomic counter buffer object
 		glBindBuffer(GL_ATOMIC_COUNTER_BUFFER, ABO);
-		glBufferData(GL_ATOMIC_COUNTER_BUFFER, sizeof(GLuint), NULL, GL_DYNAMIC_COPY);
+		glBufferData(GL_ATOMIC_COUNTER_BUFFER, sizeof(GLuint) * 2, NULL, GL_DYNAMIC_COPY);
 		glBindBufferBase(GL_ATOMIC_COUNTER_BUFFER, 0, ABO);
 
-		//set HT: head pointer texture
+		//set TEX_HEADER: head pointer texture
 		glActiveTexture(GL_TEXTURE0);
 		glBindTexture(GL_TEXTURE_2D, TEX_HEADER);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
@@ -258,20 +273,21 @@ private:
 		//texture buffer object is a texture bound to a buffer object
 		glBindImageTexture(0, TEX_HEADER, 0, GL_FALSE, 0, GL_READ_WRITE, GL_R32UI);
 
-		//set HI: head pointer initializer
-		glBindBuffer(GL_PIXEL_UNPACK_BUFFER, PBO_CLR_HEADER);
+		//set PBO_SET_HEADER: head pointer initializer
+		glBindBuffer(GL_PIXEL_UNPACK_BUFFER, PBO_SET_HEAD);
 		glBufferData(GL_PIXEL_UNPACK_BUFFER, TOTAL_PIXELS * sizeof(GLuint), NULL, GL_STATIC_DRAW);
 		GLuint *data;//for clear head pointers
 		data = (GLuint *)glMapBuffer(GL_PIXEL_UNPACK_BUFFER, GL_WRITE_ONLY);
 		memset(data, 0x0, TOTAL_PIXELS * sizeof(GLuint));//0xff->list end
 		glUnmapBuffer(GL_PIXEL_UNPACK_BUFFER);
 
-		glBindBuffer(GL_PIXEL_PACK_BUFFER, PBO_READ_HEADER);
+		//set PBO_READ_HEADER: read head pointers
+		glBindBuffer(GL_PIXEL_PACK_BUFFER, PBO_READ_HEAD);
 		glBufferData(GL_PIXEL_PACK_BUFFER, TOTAL_PIXELS * sizeof(GLuint), NULL, GL_DYNAMIC_COPY);
 
 		//set SBO: linked list storage buffer object
 		glBindBuffer(GL_TEXTURE_BUFFER, SBO_LIST);
-		glBufferData(GL_TEXTURE_BUFFER, fragmentNum * sizeof(glm::vec4), NULL, GL_DYNAMIC_COPY);
+		glBufferData(GL_TEXTURE_BUFFER, MAX_FRAGMENT_NUM * sizeof(glm::vec4), NULL, GL_DYNAMIC_COPY);
 		glBindBuffer(GL_TEXTURE_BUFFER, 0);
 
 		//set TEX_LIST: linked list texture
@@ -281,7 +297,43 @@ private:
 		//attention! real format--> float
 		glTexBuffer(GL_TEXTURE_BUFFER, GL_RGBA32F, SBO_LIST);
 		glBindTexture(GL_TEXTURE_BUFFER, 0);
-		glBindImageTexture(1, TEX_LIST, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
+		glBindImageTexture(1, TEX_LIST, 0, GL_FALSE, 0, GL_READ_WRITE, GL_RGBA32F);
+
+		//set TEX_VISIT: visit texture
+		glActiveTexture(GL_TEXTURE2);
+		glBindTexture(GL_TEXTURE_2D, TEX_VISIT);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+		//2D texture, level 0, 32-bit GLuint per texel, width, height, no border, single channel, GLuint, no data yet
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_R32UI, SCR_WIDTH, SCR_HEIGHT, 0, GL_RED_INTEGER, GL_UNSIGNED_INT, NULL);
+		glBindTexture(GL_TEXTURE_2D, 0);
+		//the image unit can be bound to a texture object/texture buffer object
+		//texture buffer object is a texture bound to a buffer object
+		glBindImageTexture(2, TEX_VISIT, 0, GL_FALSE, 0, GL_READ_WRITE, GL_R32UI);
+
+		//set PBO_SET_VISIT: visit initializer
+		glBindBuffer(GL_PIXEL_UNPACK_BUFFER, PBO_SET_VISIT);
+		glBufferData(GL_PIXEL_UNPACK_BUFFER, TOTAL_PIXELS * sizeof(GLuint), NULL, GL_STATIC_DRAW);
+		data = (GLuint *)glMapBuffer(GL_PIXEL_UNPACK_BUFFER, GL_WRITE_ONLY);
+		memset(data, 0x01, TOTAL_PIXELS * sizeof(GLuint));//non-zero value
+		glUnmapBuffer(GL_PIXEL_UNPACK_BUFFER);
+
+		//// set TEX_MAT_H : matrix H texture
+		//glActiveTexture(GL_TEXTURE3);
+		//glBindTexture(GL_TEXTURE_2D, TEX_MAT_H);
+		//glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		//glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+		////2D texture, level 0, 32-bit GLuint per texel, width, height, no border, single channel, GLuint, no data yet
+		//glTexImage2D(GL_TEXTURE_2D, 0, GL_R32UI, segmentNum, segmentNum, 0, GL_RED_INTEGER, GL_UNSIGNED_INT, NULL);
+		//glBindTexture(GL_TEXTURE_2D, 0);
+		//glBindImageTexture(3, TEX_MAT_H, 0, GL_FALSE, 0, GL_READ_WRITE, GL_R32UI);
+
+		////set PBO_READ_MAT_H: read head pointers
+		//glBindBuffer(GL_PIXEL_PACK_BUFFER, PBO_READ_MAT_H);
+		//glBufferData(GL_PIXEL_PACK_BUFFER, segmentNum * segmentNum * sizeof(GLuint), NULL, GL_DYNAMIC_COPY);
+
+		//bind VAO
+		glBindVertexArray(VAO);
 
 		//set VBO
 		glBindBuffer(GL_ARRAY_BUFFER, VBO);

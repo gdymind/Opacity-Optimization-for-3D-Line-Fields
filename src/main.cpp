@@ -5,8 +5,8 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
-#include "Shader.hpp"
-#include "Camera.hpp"
+#include "Include/Shader.hpp"
+#include "Include/Camera.hpp"
 #include "Mesh.hpp"
 
 #include <iostream>
@@ -37,34 +37,39 @@ float rotateVertical = 0.0f;
 float deltaTime = 0.0f;
 float lastFrame = 0.0f;
 
-GLuint readAtomicCounter()
+//index == 0 -> list couter; index == 1 -> debug out
+GLuint readAtomicCounter(int index)
 {
 	GLuint *cnt;
 	cnt = (GLuint*)glMapBuffer(GL_ATOMIC_COUNTER_BUFFER, GL_READ_ONLY);
 	glUnmapBuffer(GL_ATOMIC_COUNTER_BUFFER);
-	return cnt[0];
+	return cnt[index];
 }
 
-void setAtomicCounter(GLuint val)
+void setAtomicCounter(int index, GLuint val)
 {
 	GLuint *cnt;
 	cnt = (GLuint*)glMapBuffer(GL_ATOMIC_COUNTER_BUFFER, GL_WRITE_ONLY);
-	cnt[0] = val;
+	cnt[index] = val;
 	glUnmapBuffer(GL_ATOMIC_COUNTER_BUFFER);
 }
 
 const int MAX_SEGMENTS_NUM = 5000;
 float H[MAX_SEGMENTS_NUM][MAX_SEGMENTS_NUM];
 
+GLuint headPointers[SCR_HEIGHT][SCR_WIDTH];
+glm::vec4 listBuffer[MAX_FRAGMENT_NUM];
+
 int main()
 {
 	// glfw: initialize and configure
 	// ------------------------------
 	glfwInit();
+	//OpenGL version 4.6
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 4);
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-	//glfwWindowHint(GLFW_DECORATED, false);//remove title bar for debugging(otherwise the minimum width is too big)
+	glfwWindowHint(GLFW_DECORATED, false);//remove title bar for debugging(otherwise the minimum width is too big)
 	//glfwWindowHint(GLFW_SAMPLES, 4);
 
 	// glfw window creation
@@ -94,12 +99,30 @@ int main()
 
 	// configure global opengl state
 	// -----------------------------
-	glEnable(GL_DEPTH_TEST);
 	glDisable(GL_MULTISAMPLE);
 	//glEnable(GL_MULTISAMPLE);
 	//draw multiple instances using a single call
 	glEnable(GL_PRIMITIVE_RESTART);
 	glPrimitiveRestartIndex(RESTART_NUM);
+
+	// build and compile shaders
+	// -------------------------
+	Shader buildShader("build.vs", "build.fs");
+	Shader matrixShader("getMatrix.vs", "getMatrix.fs");
+	//Shader shader("origional.vs", "origional.fs");
+
+	// load models
+	// -----------
+	//Mesh mesh("Data/flow_data/cyclone.obj");
+	Mesh mesh("Data/flow_data/test.obj");
+
+	GLint max_buffer_size;
+	glGetIntegerv(GL_MAX_TEXTURE_BUFFER_SIZE, &max_buffer_size);
+	cout << "The maximum texture buffer size is " << max_buffer_size << " bytes." << endl;
+
+	//GLint max_texture_number;
+	//glGetIntegerv(GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS, &max_texture_number);
+	//cout << "The maximum texture number is " << max_texture_number << endl;
 
 	//Engine *ep;//engine for MATLAB
 	//// open engine
@@ -110,21 +133,6 @@ int main()
 	//	return EXIT_FAILURE;
 	//}
 
-	// build and compile shaders
-	// -------------------------
-	Shader buildShader("build.vs", "build.fs");
-	//Shader resolveShader("resolve.vs", "resolve.fs");
-	//Shader shader("ori.vs", "ori.fs");
-
-	// load models
-	// -----------
-	Mesh mesh("res/flow_data/cyclone.obj");
-	//Mesh mesh("res/flow_data/test.obj");
-
-
-	GLint max_buffer_size;
-	glGetIntegerv(GL_MAX_TEXTURE_BUFFER_SIZE, &max_buffer_size);
-	cout << "The maximum texture buffer size is " << max_buffer_size << " bytes." << endl;
 
 	// render loop
 	// -----------
@@ -141,40 +149,42 @@ int main()
 		// -----
 		processInput(window);
 
-		// build linked list
-		// ----------------
+		// init work before building the linked list
+		// -----------------------------------------
 
-		//glDisable(GL_DEPTH_TEST);
-		//glDisable(GL_CULL_FACE);
 		glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
-		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		glClear(GL_COLOR_BUFFER_BIT);// | GL_DEPTH_BUFFER_BIT);
 
 		//reset atomic counter
-		setAtomicCounter(0);
+		setAtomicCounter(0, 0);
 		//cout << "list counter: " << readAtomicCounter() << endl;
 
-		//clear head pointer
-		glBindBuffer(GL_PIXEL_UNPACK_BUFFER, mesh.PBO_CLR_HEADER);
+		//reset head pointer
+		glBindBuffer(GL_PIXEL_UNPACK_BUFFER, mesh.PBO_SET_HEAD);
 		glBindTexture(GL_TEXTURE_2D, mesh.TEX_HEADER);
 		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, SCR_WIDTH, SCR_HEIGHT, GL_RED_INTEGER, GL_UNSIGNED_INT, NULL);
 		glBindTexture(GL_TEXTURE_2D, 0);
-		// Bind head-pointer image for read-write
-		glBindImageTexture(0, mesh.TEX_HEADER, 0, GL_FALSE, 0, GL_READ_WRITE, GL_R32UI);
-		 //Bind linked-list buffer for write
-		//glBindImageTexture(1, mesh.LT, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32UI);
 
-		buildShader.use();
+		//reset visit
+		glBindBuffer(GL_PIXEL_UNPACK_BUFFER, mesh.PBO_SET_VISIT);
+		glBindTexture(GL_TEXTURE_2D, mesh.TEX_VISIT);
+		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, SCR_WIDTH, SCR_HEIGHT, GL_RED_INTEGER, GL_UNSIGNED_INT, NULL);
+
+		//Bind head-pointer image
+		glBindImageTexture(0, mesh.TEX_HEADER, 0, GL_FALSE, 0, GL_READ_WRITE, GL_R32UI);
+		//Bind linked-list buffer
+		glBindImageTexture(1, mesh.TEX_LIST, 0, GL_FALSE, 0, GL_READ_WRITE, GL_RGBA32UI);
+		//Bind visit
+		glBindImageTexture(2, mesh.TEX_VISIT, 0, GL_FALSE, 0, GL_READ_WRITE, GL_R32UI);
+
 
 		// view/projection/model matrix
-		glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.001f, 5.0f);
-		glm::mat4 view = camera.GetViewMatrix();
-		glm::mat4 model;
+		glm::mat4 projection, view, model, modelViewProjectionMatrix;
+		projection = glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.001f, 5.0f);
+		view = camera.GetViewMatrix();
 		model = glm::translate(model, glm::vec3(0.0f, 0.0f, 0.0f)); // translate it down so it's at the center of the scene
 		model = glm::scale(model, glm::vec3(1.0f, 1.0f, 1.0f));	// it's a bit too big for our scene, so scale it down
-		glm::mat4 modelViewProjectionMatrix = projection * view * model;
-		buildShader.setVec3("viewDirection", camera.Front);
-		buildShader.setMat4("modelViewProjectionMatrix", modelViewProjectionMatrix);
-		buildShader.setFloat("stripWidth", 2 * 2.0f / SCR_WIDTH);//strip width
+		modelViewProjectionMatrix = projection * view * model;
 
 		//rotate
 		glm::mat4 rotMat2;
@@ -182,37 +192,89 @@ int main()
 		rotMat2 = glm::rotate(rotMat2, rotateVertical, glm::vec3(1.0f, 0.0f, 0.0f));
 		rotateHorizontal = rotateVertical = 0.0f;
 		rotMat = rotMat2 * rotMat;
+
+		GLuint fragmentNum = 0;
+
+		//1. build linked list
+		//--------------------
+		glDisable(GL_DEPTH_TEST);
+		glDisable(GL_CULL_FACE);
+
+		buildShader.use();
+
+		buildShader.setVec3("viewDirection", camera.Front);
+		buildShader.setMat4("modelViewProjectionMatrix", modelViewProjectionMatrix);
+		buildShader.setFloat("stripWidth", 2 * 2.0f / SCR_WIDTH);//strip width
 		buildShader.setMat4("transform", rotMat);
 
 		mesh.Draw();
 
-		//glBindTexture(GL_TEXTURE_2D, mesh.TEX_HEADER);
-		//glBindBuffer(GL_PIXEL_PACK_BUFFER, mesh.PBO_READ_HEADER);
-		//glGetTexImage(GL_TEXTURE_2D, 0, GL_RED_INTEGER, GL_UNSIGNED_INT, (GLvoid*)0);
-		//GLuint *heads;//for clear head pointers
-		//heads = (GLuint *)glMapBuffer(GL_PIXEL_PACK_BUFFER, GL_READ_ONLY);
-		//if (heads == nullptr)
-		//{
-		//	cout << "null heads pointer" << endl;
-		//	//cin.get();
-		//}
-		//else
-		//{
-		//	ofstream out("out.txt");
-		//	for (int i = 0; i < SCR_HEIGHT; ++i)
-		//	{
-		//		for (int j = 0; j < SCR_WIDTH; ++j)
-		//		{
-		//			out << heads[i * SCR_HEIGHT + j] << '\t';
-		//			//out << heads[0] << ' ' << endl;
-		//		}
-		//		out << endl;
-		//	}
-		//}
-		//glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
-		//glBindTexture(GL_TEXTURE_2D, 0);
+		fragmentNum = readAtomicCounter(0);
 
-		//cout << "list counter: " << readAtomicCounter() << endl;
+		//2. compute matrix H
+		//-------------------
+		matrixShader.use();
+
+		matrixShader.setVec3("viewDirection", camera.Front);
+		matrixShader.setMat4("modelViewProjectionMatrix", modelViewProjectionMatrix);
+		matrixShader.setFloat("stripWidth", 2 * 2.0f / SCR_WIDTH);//strip width
+		matrixShader.setMat4("transform", rotMat);
+		
+		matrixShader.setInt("segmentNum", mesh.segmentNum);
+		
+		mesh.Draw();
+
+		//read head pointers
+		glBindTexture(GL_TEXTURE_2D, mesh.TEX_HEADER);
+		glBindBuffer(GL_PIXEL_PACK_BUFFER, mesh.PBO_READ_HEAD);
+		glGetTexImage(GL_TEXTURE_2D, 0, GL_RED_INTEGER, GL_UNSIGNED_INT, (GLvoid*)0);
+		GLuint *dataHead;//for clear head pointers
+		dataHead = (GLuint *)glMapBuffer(GL_PIXEL_PACK_BUFFER, GL_READ_ONLY);
+		if (dataHead == nullptr)
+		{
+			cout << "null heads pointer" << endl;
+			cin.get();
+		}
+		else
+		{
+			memcpy(&headPointers[0][0], dataHead, sizeof(GLuint) * TOTAL_PIXELS);
+			ofstream out("head.txt");
+			for (int i = 0; i < SCR_HEIGHT; ++i)
+			{
+				for (int j = 0; j < SCR_WIDTH; ++j)
+				{
+					out << headPointers[i][j] << '\t';
+				}
+				out << endl;
+			}
+		}
+		glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
+		glBindTexture(GL_TEXTURE_2D, 0);
+
+		//read list buffer
+		glBindTexture(GL_TEXTURE_2D, mesh.TEX_LIST);
+		glBindBuffer(GL_TEXTURE_BUFFER, mesh.SBO_LIST);
+		GLfloat *dataList;
+		dataList = (GLfloat *)glMapBuffer(GL_TEXTURE_BUFFER, GL_READ_ONLY);
+		if (dataList == nullptr)
+		{
+			cout << "null list buffer" << endl;
+			cin.get();
+		}
+		else
+		{
+			memcpy(listBuffer, dataList, fragmentNum * sizeof(glm::vec4));
+			ofstream out("listbuffer.txt");
+			int tmp;
+			for (int i = 0; i < fragmentNum; ++i)
+			{
+				memcpy(&tmp, &(listBuffer[i].x), sizeof(int));
+				listBuffer[i].x = tmp;
+				out << i << '\t' << listBuffer[i].x << '\t' << listBuffer[i].y << '\t' << listBuffer[i].z << endl;
+			}
+		}
+		glUnmapBuffer(GL_TEXTURE_BUFFER);
+		glBindTexture(GL_TEXTURE_2D, 0);
 
 		// glfw: swap buffers and poll IO events (keys pressed/released, mouse moved etc.)
 		// -------------------------------------------------------------------------------
@@ -220,7 +282,7 @@ int main()
 		glfwPollEvents();
 		//break;
 	}
-	cin.get();
+	//std::cin.get();
 	// glfw: terminate, clearing all previously allocated GLFW resources.
 	// ------------------------------------------------------------------
 	glfwTerminate();
