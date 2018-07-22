@@ -10,15 +10,14 @@ uniform mat4 modelViewProjectionMatrix;
 uniform vec3 viewDirection;
 uniform mat4 transform;
 
-
-//layout (location = 1) in vec4 aColor;
-
-out vec4 color;
+out vec2 TexCoords;
+out float weight;
 
 void main(void)
 {
 	vec3 d = (transform * vec4(aDirection, 1.0f)).xyz;
 	vec3 offset = normalize(cross(d, viewDirection)) * (aTexCoords.y - 0.5f) * stripWidth;
 	gl_Position = modelViewProjectionMatrix * (transform * vec4(aPos, 1.0f) + vec4(offset, 0.0f));
-	color = vec4(0.0f, 1.0f, 0.0f, 1.0f);
-}
+    TexCoords = aTexCoords;
+    weight = aWeight;
+} 

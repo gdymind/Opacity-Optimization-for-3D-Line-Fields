@@ -69,7 +69,7 @@ int main()
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-	glfwWindowHint(GLFW_DECORATED, false);//remove title bar for debugging(otherwise the minimum width is too big)
+	//glfwWindowHint(GLFW_DECORATED, false);//remove title bar for debugging(otherwise the minimum width is too big)
 	//glfwWindowHint(GLFW_SAMPLES, 4);
 
 	// glfw window creation
@@ -109,12 +109,12 @@ int main()
 	// -------------------------
 	Shader buildShader("build.vs", "build.fs");
 	Shader matrixShader("getMatrix.vs", "getMatrix.fs");
-	//Shader shader("origional.vs", "origional.fs");
+	Shader displayShader("display.vs", "display.fs");
 
 	// load models
 	// -----------
-	//Mesh mesh("Data/flow_data/cyclone.obj");
-	Mesh mesh("Data/flow_data/test.obj");
+	Mesh mesh("Data/flow_data/cyclone.obj");
+	//Mesh mesh("Data/flow_data/test.obj");
 
 	GLint max_buffer_size;
 	glGetIntegerv(GL_MAX_TEXTURE_BUFFER_SIZE, &max_buffer_size);
@@ -136,6 +136,7 @@ int main()
 
 	// render loop
 	// -----------
+	int frameNum = 0;
 	while (!glfwWindowShouldClose(window))
 	//for(int ti = 0; ti < 5; ++ti)
 	{
@@ -149,35 +150,6 @@ int main()
 		// -----
 		processInput(window);
 
-		// init work before building the linked list
-		// -----------------------------------------
-
-		glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
-		glClear(GL_COLOR_BUFFER_BIT);// | GL_DEPTH_BUFFER_BIT);
-
-		//reset atomic counter
-		setAtomicCounter(0, 0);
-		//cout << "list counter: " << readAtomicCounter() << endl;
-
-		//reset head pointer
-		glBindBuffer(GL_PIXEL_UNPACK_BUFFER, mesh.PBO_SET_HEAD);
-		glBindTexture(GL_TEXTURE_2D, mesh.TEX_HEADER);
-		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, SCR_WIDTH, SCR_HEIGHT, GL_RED_INTEGER, GL_UNSIGNED_INT, NULL);
-		glBindTexture(GL_TEXTURE_2D, 0);
-
-		//reset visit
-		glBindBuffer(GL_PIXEL_UNPACK_BUFFER, mesh.PBO_SET_VISIT);
-		glBindTexture(GL_TEXTURE_2D, mesh.TEX_VISIT);
-		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, SCR_WIDTH, SCR_HEIGHT, GL_RED_INTEGER, GL_UNSIGNED_INT, NULL);
-
-		//Bind head-pointer image
-		glBindImageTexture(0, mesh.TEX_HEADER, 0, GL_FALSE, 0, GL_READ_WRITE, GL_R32UI);
-		//Bind linked-list buffer
-		glBindImageTexture(1, mesh.TEX_LIST, 0, GL_FALSE, 0, GL_READ_WRITE, GL_RGBA32UI);
-		//Bind visit
-		glBindImageTexture(2, mesh.TEX_VISIT, 0, GL_FALSE, 0, GL_READ_WRITE, GL_R32UI);
-
-
 		// view/projection/model matrix
 		glm::mat4 projection, view, model, modelViewProjectionMatrix;
 		projection = glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.001f, 5.0f);
@@ -185,7 +157,6 @@ int main()
 		model = glm::translate(model, glm::vec3(0.0f, 0.0f, 0.0f)); // translate it down so it's at the center of the scene
 		model = glm::scale(model, glm::vec3(1.0f, 1.0f, 1.0f));	// it's a bit too big for our scene, so scale it down
 		modelViewProjectionMatrix = projection * view * model;
-
 		//rotate
 		glm::mat4 rotMat2;
 		rotMat2 = glm::rotate(rotMat2, rotateHorizontal, glm::vec3(0.0f, 1.0f, 0.0f));
@@ -193,88 +164,138 @@ int main()
 		rotateHorizontal = rotateVertical = 0.0f;
 		rotMat = rotMat2 * rotMat;
 
-		GLuint fragmentNum = 0;
-
-		//1. build linked list
-		//--------------------
-		glDisable(GL_DEPTH_TEST);
-		glDisable(GL_CULL_FACE);
-
-		buildShader.use();
-
-		buildShader.setVec3("viewDirection", camera.Front);
-		buildShader.setMat4("modelViewProjectionMatrix", modelViewProjectionMatrix);
-		buildShader.setFloat("stripWidth", 2 * 2.0f / SCR_WIDTH);//strip width
-		buildShader.setMat4("transform", rotMat);
-
-		mesh.Draw();
-
-		fragmentNum = readAtomicCounter(0);
-
-		//2. compute matrix H
-		//-------------------
-		matrixShader.use();
-
-		matrixShader.setVec3("viewDirection", camera.Front);
-		matrixShader.setMat4("modelViewProjectionMatrix", modelViewProjectionMatrix);
-		matrixShader.setFloat("stripWidth", 2 * 2.0f / SCR_WIDTH);//strip width
-		matrixShader.setMat4("transform", rotMat);
-		
-		matrixShader.setInt("segmentNum", mesh.segmentNum);
-		
-		mesh.Draw();
-
-		//read head pointers
-		glBindTexture(GL_TEXTURE_2D, mesh.TEX_HEADER);
-		glBindBuffer(GL_PIXEL_PACK_BUFFER, mesh.PBO_READ_HEAD);
-		glGetTexImage(GL_TEXTURE_2D, 0, GL_RED_INTEGER, GL_UNSIGNED_INT, (GLvoid*)0);
-		GLuint *dataHead;//for clear head pointers
-		dataHead = (GLuint *)glMapBuffer(GL_PIXEL_PACK_BUFFER, GL_READ_ONLY);
-		if (dataHead == nullptr)
+		if (frameNum == 100)//compute new opacity
 		{
-			cout << "null heads pointer" << endl;
-			cin.get();
-		}
-		else
-		{
-			memcpy(&headPointers[0][0], dataHead, sizeof(GLuint) * TOTAL_PIXELS);
-			ofstream out("head.txt");
-			for (int i = 0; i < SCR_HEIGHT; ++i)
+			frameNum = 0;
+
+			// init work before building the linked list
+			// -----------------------------------------
+			glDisable(GL_DEPTH_TEST);
+			glDisable(GL_CULL_FACE);
+			glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
+			glClear(GL_COLOR_BUFFER_BIT);
+
+			//reset list counter
+			setAtomicCounter(0, 0);
+
+			//reset head pointer
+			glBindBuffer(GL_PIXEL_UNPACK_BUFFER, mesh.PBO_SET_HEAD);
+			glBindTexture(GL_TEXTURE_2D, mesh.TEX_HEADER);
+			glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, SCR_WIDTH, SCR_HEIGHT, GL_RED_INTEGER, GL_UNSIGNED_INT, NULL);
+			glBindTexture(GL_TEXTURE_2D, 0);
+
+			//reset visit
+			glBindBuffer(GL_PIXEL_UNPACK_BUFFER, mesh.PBO_SET_VISIT);
+			glBindTexture(GL_TEXTURE_2D, mesh.TEX_VISIT);
+			glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, SCR_WIDTH, SCR_HEIGHT, GL_RED_INTEGER, GL_UNSIGNED_INT, NULL);
+
+			//Bind head-pointer image
+			glBindImageTexture(0, mesh.TEX_HEADER, 0, GL_FALSE, 0, GL_READ_WRITE, GL_R32UI);
+			//Bind linked-list buffer
+			glBindImageTexture(1, mesh.TEX_LIST, 0, GL_FALSE, 0, GL_READ_WRITE, GL_RGBA32UI);
+			//Bind visit
+			glBindImageTexture(2, mesh.TEX_VISIT, 0, GL_FALSE, 0, GL_READ_WRITE, GL_R32UI);
+
+			GLuint fragmentNum = 0;
+
+			//1. build linked list
+			//--------------------
+			buildShader.use();
+
+			buildShader.setVec3("viewDirection", camera.Front);
+			buildShader.setMat4("modelViewProjectionMatrix", modelViewProjectionMatrix);
+			buildShader.setFloat("stripWidth", 2 * 2.0f / SCR_WIDTH);//strip width
+			buildShader.setMat4("transform", rotMat);
+
+			mesh.Draw();
+
+			fragmentNum = readAtomicCounter(0);
+
+			//2. compute matrix H
+			//-------------------
+			matrixShader.use();
+
+			matrixShader.setVec3("viewDirection", camera.Front);
+			matrixShader.setMat4("modelViewProjectionMatrix", modelViewProjectionMatrix);
+			matrixShader.setFloat("stripWidth", 2 * 2.0f / SCR_WIDTH);//strip width
+			matrixShader.setMat4("transform", rotMat);
+
+			matrixShader.setInt("segmentNum", mesh.segmentNum);
+
+			mesh.Draw();
+
+			//read head pointers
+			glBindTexture(GL_TEXTURE_2D, mesh.TEX_HEADER);
+			glBindBuffer(GL_PIXEL_PACK_BUFFER, mesh.PBO_READ_HEAD);
+			glGetTexImage(GL_TEXTURE_2D, 0, GL_RED_INTEGER, GL_UNSIGNED_INT, (GLvoid*)0);
+			GLuint *dataHead;//for clear head pointers
+			dataHead = (GLuint *)glMapBuffer(GL_PIXEL_PACK_BUFFER, GL_READ_ONLY);
+			if (dataHead == nullptr)
 			{
-				for (int j = 0; j < SCR_WIDTH; ++j)
+				cout << "null heads pointer" << endl;
+				cin.get();
+			}
+			else
+			{
+				memcpy(&headPointers[0][0], dataHead, sizeof(GLuint) * TOTAL_PIXELS);
+				//ofstream out("head.txt");
+				//for (int i = 0; i < SCR_HEIGHT; ++i)
+				//{
+				//	for (int j = 0; j < SCR_WIDTH; ++j)
+				//	{
+				//		out << headPointers[i][j] << '\t';
+				//	}
+				//	out << endl;
+				//}
+			}
+			glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
+			glBindTexture(GL_TEXTURE_2D, 0);
+
+			//read list buffer
+			glBindTexture(GL_TEXTURE_2D, mesh.TEX_LIST);
+			glBindBuffer(GL_TEXTURE_BUFFER, mesh.SBO_LIST);
+			GLfloat *dataList;
+			dataList = (GLfloat *)glMapBuffer(GL_TEXTURE_BUFFER, GL_READ_ONLY);
+			if (dataList == nullptr)
+			{
+				cout << "null list buffer" << endl;
+				cin.get();
+			}
+			else
+			{
+				memcpy(listBuffer, dataList, fragmentNum * sizeof(glm::vec4));
+				int tmp;
+				for (int i = 0; i < (int)fragmentNum; ++i)
 				{
-					out << headPointers[i][j] << '\t';
+					memcpy(&tmp, &(listBuffer[i].x), sizeof(int));
+					listBuffer[i].x = (float)tmp;
 				}
-				out << endl;
+				//ofstream out("listbuffer.txt");
+				//for (int i = 0; i < (int)fragmentNum; ++i)
+				//{
+				//	memcpy(&tmp, &(listBuffer[i].x), sizeof(int));
+				//	listBuffer[i].x = (float)tmp;
+				//	out << i << '\t' << listBuffer[i].x << '\t' << listBuffer[i].y << '\t' << listBuffer[i].z << endl;
+				//}
 			}
+			glUnmapBuffer(GL_TEXTURE_BUFFER);
+			glBindTexture(GL_TEXTURE_2D, 0);
 		}
-		glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
-		glBindTexture(GL_TEXTURE_2D, 0);
 
-		//read list buffer
-		glBindTexture(GL_TEXTURE_2D, mesh.TEX_LIST);
-		glBindBuffer(GL_TEXTURE_BUFFER, mesh.SBO_LIST);
-		GLfloat *dataList;
-		dataList = (GLfloat *)glMapBuffer(GL_TEXTURE_BUFFER, GL_READ_ONLY);
-		if (dataList == nullptr)
-		{
-			cout << "null list buffer" << endl;
-			cin.get();
-		}
-		else
-		{
-			memcpy(listBuffer, dataList, fragmentNum * sizeof(glm::vec4));
-			ofstream out("listbuffer.txt");
-			int tmp;
-			for (int i = 0; i < fragmentNum; ++i)
-			{
-				memcpy(&tmp, &(listBuffer[i].x), sizeof(int));
-				listBuffer[i].x = tmp;
-				out << i << '\t' << listBuffer[i].x << '\t' << listBuffer[i].y << '\t' << listBuffer[i].z << endl;
-			}
-		}
-		glUnmapBuffer(GL_TEXTURE_BUFFER);
-		glBindTexture(GL_TEXTURE_2D, 0);
+		//3. final display
+		//glEnable(GL_DEPTH_TEST);
+		//glEnable(GL_CULL_FACE);
+		glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
+		glClear(GL_COLOR_BUFFER_BIT);
+		//glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BITS);
+		displayShader.use();
+
+		displayShader.setVec3("viewDirection", camera.Front);
+		displayShader.setMat4("modelViewProjectionMatrix", modelViewProjectionMatrix);
+		displayShader.setFloat("stripWidth", 2 * 2.0f / SCR_WIDTH);//strip width
+		displayShader.setMat4("transform", rotMat);
+
+		mesh.Draw();
 
 		// glfw: swap buffers and poll IO events (keys pressed/released, mouse moved etc.)
 		// -------------------------------------------------------------------------------

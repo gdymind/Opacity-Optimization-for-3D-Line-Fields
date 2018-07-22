@@ -3,7 +3,7 @@
 layout (binding = 0, r32ui) uniform uimage2D headPointers;
 layout (binding = 1, rgba32ui) uniform uimageBuffer listBuffer;
 layout (binding = 2, r32ui) uniform uimage2D visit;
-// layout (binding = 3, r32ui) uniform uimage2D H;
+layout (binding = 3, r32f) uniform imageBuffer opacityBuffer;
 
 layout(binding = 0, offset = 0) uniform atomic_uint listCounter;
 layout(binding = 0, offset = 4) uniform atomic_uint debugOut;
@@ -71,5 +71,5 @@ void main(void)
 
 	}
 
-	FragColor = color;
+	FragColor = vec4(0.0f, 1.0f, 0.0f, 1.0f);
 }

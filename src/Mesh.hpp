@@ -20,8 +20,8 @@ using namespace std;
 
 const unsigned int RESTART_NUM = 0x5FFFFFu;//primitive restart number
 // settings
-const unsigned int SCR_WIDTH = 10;
-const unsigned int SCR_HEIGHT = 5;// SCR_WIDTH;
+const unsigned int SCR_WIDTH = 600;
+const unsigned int SCR_HEIGHT = SCR_WIDTH;
 const unsigned int TOTAL_PIXELS = SCR_WIDTH * SCR_HEIGHT;
 const unsigned int MAX_FRAGMENT_NUM = 8000000;
 
@@ -60,6 +60,9 @@ public:
 
 	GLuint TEX_VISIT;
 	GLuint PBO_SET_VISIT;
+
+	GLuint SBO_OPACITY;
+	GLuint TEX_OPACITY;
 
 	//GLuint TEX_MAT_H;
 	//GLuint PBO_READ_MAT_H;
@@ -159,7 +162,8 @@ private:
 			Position = Position * fillratio;
 		}
 
-		float curWeight = 0.5f;
+		//segment 0's index is 0, not 1
+		float curWeight = -0.5f;
 		for (auto it = lines.begin(); it != lines.end(); ++it)
 		{
 			vector<unsigned int> &line = *it;
@@ -285,7 +289,7 @@ private:
 		glBindBuffer(GL_PIXEL_PACK_BUFFER, PBO_READ_HEAD);
 		glBufferData(GL_PIXEL_PACK_BUFFER, TOTAL_PIXELS * sizeof(GLuint), NULL, GL_DYNAMIC_COPY);
 
-		//set SBO: linked list storage buffer object
+		//set SBO_LIST: linked list storage buffer object
 		glBindBuffer(GL_TEXTURE_BUFFER, SBO_LIST);
 		glBufferData(GL_TEXTURE_BUFFER, MAX_FRAGMENT_NUM * sizeof(glm::vec4), NULL, GL_DYNAMIC_COPY);
 		glBindBuffer(GL_TEXTURE_BUFFER, 0);
@@ -317,6 +321,36 @@ private:
 		data = (GLuint *)glMapBuffer(GL_PIXEL_UNPACK_BUFFER, GL_WRITE_ONLY);
 		memset(data, 0x01, TOTAL_PIXELS * sizeof(GLuint));//non-zero value
 		glUnmapBuffer(GL_PIXEL_UNPACK_BUFFER);
+
+		//set SBO_OPACITY: opacity storage buffer object
+		glBindBuffer(GL_TEXTURE_BUFFER, SBO_OPACITY);
+		glBufferData(GL_TEXTURE_BUFFER, segmentNum * sizeof(float), NULL, GL_DYNAMIC_COPY);
+		glBindBuffer(GL_TEXTURE_BUFFER, 0);
+
+		//set TEX_OPACITY: opacity texture
+		glActiveTexture(GL_TEXTURE3);
+		glBindTexture(GL_TEXTURE_BUFFER, TEX_OPACITY);
+		glTexBuffer(GL_TEXTURE_BUFFER, GL_R32F, SBO_OPACITY);
+		glBindTexture(GL_TEXTURE_BUFFER, 0);
+		glBindImageTexture(3, TEX_OPACITY, 0, GL_FALSE, 0, GL_READ_WRITE, GL_R32F);
+
+		//initialize opacity: all 1.0f
+		glBindTexture(GL_TEXTURE_2D, TEX_OPACITY);
+		glBindBuffer(GL_TEXTURE_BUFFER, SBO_OPACITY);
+		GLfloat *dataOpacity;
+		dataOpacity = (GLfloat *)glMapBuffer(GL_TEXTURE_BUFFER, GL_WRITE_ONLY);
+		if (dataOpacity == nullptr)
+		{
+			cout << "null dataOpacity pointer" << endl;
+			cin.get();
+		}
+		else
+		{
+			for (int i = 0; i < (int)segmentNum; ++i)
+				dataOpacity[i] = 1.0f;
+		}
+		glUnmapBuffer(GL_TEXTURE_BUFFER);
+		glBindTexture(GL_TEXTURE_2D, 0);
 
 		//// set TEX_MAT_H : matrix H texture
 		//glActiveTexture(GL_TEXTURE3);
