@@ -55,10 +55,12 @@ void setAtomicCounter(int index, GLuint val)
 }
 
 const int MAX_SEGMENTS_NUM = 5000;
-float H[MAX_SEGMENTS_NUM][MAX_SEGMENTS_NUM];
+float H[MAX_SEGMENTS_NUM * MAX_SEGMENTS_NUM];
 
 GLuint headPointers[SCR_HEIGHT][SCR_WIDTH];
 glm::vec4 listBuffer[MAX_FRAGMENT_NUM];
+
+const float EPS = 1e-10;
 
 int main()
 {
@@ -238,7 +240,7 @@ int main()
 			else
 			{
 				memcpy(&headPointers[0][0], dataHead, sizeof(GLuint) * TOTAL_PIXELS);
-				//ofstream out("head.txt");
+				/*//ofstream out("head.txt");
 				//for (int i = 0; i < SCR_HEIGHT; ++i)
 				//{
 				//	for (int j = 0; j < SCR_WIDTH; ++j)
@@ -246,7 +248,7 @@ int main()
 				//		out << headPointers[i][j] << '\t';
 				//	}
 				//	out << endl;
-				//}
+				//}*/
 			}
 			glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
 			glBindTexture(GL_TEXTURE_2D, 0);
@@ -270,16 +272,43 @@ int main()
 					memcpy(&tmp, &(listBuffer[i].x), sizeof(int));
 					listBuffer[i].x = (float)tmp;
 				}
-				//ofstream out("listbuffer.txt");
-				//for (int i = 0; i < (int)fragmentNum; ++i)
-				//{
-				//	memcpy(&tmp, &(listBuffer[i].x), sizeof(int));
-				//	listBuffer[i].x = (float)tmp;
-				//	out << i << '\t' << listBuffer[i].x << '\t' << listBuffer[i].y << '\t' << listBuffer[i].z << endl;
-				//}
+				/*ofstream out("listbuffer.txt");
+				for (int i = 0; i < (int)fragmentNum; ++i)
+				{
+					memcpy(&tmp, &(listBuffer[i].x), sizeof(int));
+					listBuffer[i].x = (float)tmp;
+					out << i << '\t' << listBuffer[i].x << '\t' << listBuffer[i].y << '\t' << listBuffer[i].z << endl;
+				}*/
 			}
 			glUnmapBuffer(GL_TEXTURE_BUFFER);
 			glBindTexture(GL_TEXTURE_2D, 0);
+
+			for (int i = 0; i < (int)mesh.segmentNum; ++i)
+				for (int j = 0; j < (int)mesh.segmentNum; ++j)
+					H[i*SCR_HEIGHT + j] = 0.0f;
+			for (int i = 0; i < (int)SCR_HEIGHT; ++i)
+			{
+				for (int j = 0; j < (int)SCR_WIDTH; ++j)
+				{
+					int curIndex = headPointers[i][j];
+					while (curIndex > EPS)
+					{
+						// x,y,z,w: next pointer, depth, weight, reserved
+						glm::vec4 &curNode = listBuffer[curIndex];
+						int segId = curNode.z;
+						int backIndex = curNode.x;
+						while (backIndex > EPS)
+						{
+							glm::vec4 &backNode = listBuffer[backIndex];
+							int segId2 = backNode.z;
+							float v = backNode.z - segId2;
+							int k = segId * SCR_HEIGHT + segId2;
+							H[k] += 1 - v;
+							H[k + 1] += v;
+						}
+					}
+				}
+			}
 		}
 
 		//3. final display
