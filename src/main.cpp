@@ -11,6 +11,8 @@
 
 #include <iostream>
 
+//#include <boost/thread.hpp>
+
 //MATLAB
 //------
 #include "engine.h"
@@ -59,13 +61,14 @@ struct ENG_CPP
 
 	bool flag = false;//to check if the opt solution is available
 
-	void new2D(double **arr, int num)
+	double** new2D(int num)
 	{
-		arr = new double*[num];
+		double **arr = new double*[num];
 		for (int i = 0; i < num; ++i)
 			arr[i] = new double[num];
 		for (int i = 0; i < num; ++i)
-			for (int j = 0; j < num; ++j) arr[i][j] = 0.0;
+			for (int j = 0; j < num; ++j) arr[i][j] = 5.0;
+		return arr;
 	}
 
 	void del2D(double **arr, int num)
@@ -123,11 +126,10 @@ glm::vec4 listBuffer[MAX_FRAGMENT_NUM];
 
 //constants
 //---------
-const float EPS = 1e-10;
+const double EPS = 1e-10;
 
 int main()
 {
-	
 	// glfw: initialize and configure
 	// ------------------------------
 	glfwInit();
@@ -189,9 +191,9 @@ int main()
 	//GLint max_texture_number;
 	//glGetIntegerv(GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS, &max_texture_number);
 	//cout << "The maximum texture number is " << max_texture_number << endl;
-
 	
 	// open engine
+	cout << "Initializing MATLAB engine..." << endl;
 	if (!(engMx.ep = engOpen("\0")))
 	{
 		fprintf(stderr, "Can't start MATLAB engine\n");
@@ -200,11 +202,11 @@ int main()
 	}
 	else
 	{
-		cout << "Finished loading MATLAB engine." << endl;
+		cout << "Finished loading MATLAB engine." << endl << endl;
 	}
 
 	//flag to check if the opt solution is available
-	engMx.mxData = mxCreateLogicalScalar(false);
+	engMx.mxData = mxCreateLogicalScalar(true);
 	engMx.putMxData("flag");
 
 	//transform coffients
@@ -212,9 +214,9 @@ int main()
 	engMx.putMxData("coff", engCpp.coff, sizeof(engCpp.coff));
 
 	//initilize matrxies
-	engCpp.new2D(engCpp.H, mesh.segmentNum);
-	engCpp.new2D(engCpp.G, mesh.segmentNum);
-	engCpp.new2D(engCpp.D, mesh.segmentNum);
+	engCpp.H = engCpp.new2D(mesh.segmentNum);
+	engCpp.G = engCpp.new2D(mesh.segmentNum);
+	engCpp.D = engCpp.new2D(mesh.segmentNum);
 
 	//initilize opacity
 	engCpp.Od = new double[mesh.segmentNum];
@@ -234,6 +236,7 @@ int main()
 	{
 		cout << "Init: null dataOpacity pointer" << endl;
 		cin.get();
+		return -1;
 	}
 	else
 	{
@@ -247,18 +250,23 @@ int main()
 	engMx.mxData = mxCreateDoubleMatrix(1, mesh.segmentNum, mxREAL);
 	engMx.putMxData("O", &engCpp.Od, sizeof(double) * mesh.segmentNum);
 
-
 	//compute matrix D
 	int curSeg = 0;
 	for (int i = 0; i < (int)mesh.lines.size(); ++i)
 	{
 		++curSeg;
-		for (int j = 1; j < mesh.segPerLine; ++j)
+		for (int j = 1; j < mesh.segPerLine; ++j, ++curSeg)
 		{
 			engCpp.D[i][curSeg - 1] += 1.0;
 			engCpp.D[i][curSeg] += -1.0;
 		}
 	}
+
+	engMx.putMxData("D", engCpp.D[0], sizeof(double) * mesh.segmentNum * mesh.segmentNum);
+
+
+	cout << "Finished transforming D to MATLAB" << endl;
+	cin.get();
 
 	//compute matrix G with line length
 	double maxLineSize = 0.0;
@@ -269,6 +277,7 @@ int main()
 
 	// render loop
 	// -----------
+	int updateTimes = 0;
 	while (!glfwWindowShouldClose(window))
 	//for(int ti = 0; ti < 5; ++ti)
 	{
@@ -302,12 +311,16 @@ int main()
 		engMx.getMxData("flag", &engCpp.flag, sizeof(bool));
 		if (engCpp.flag)//compute new opacity
 		{
+			cout << "update times: " << ++updateTimes << endl;
 			engMx.mxData = mxCreateLogicalScalar(false);
 			engMx.putMxData("flag");
 
 			engMx.getMxData("O", &engCpp.Od, sizeof(double) * mesh.segmentNum);
 			for (int i = 0; i < (int)mesh.segmentNum; ++i)
 				engCpp.O[i] = (float)engCpp.Od[i];
+
+			//cout << "Finished get O from MATLAB" << endl;
+
 			void *dataOpacity;
 			dataOpacity = (void *)glMapBuffer(GL_TEXTURE_BUFFER, GL_WRITE_ONLY);
 			if (dataOpacity == nullptr)
@@ -324,6 +337,8 @@ int main()
 			glBindTexture(GL_TEXTURE_2D, 0);
 
 			glFlush();
+
+			//cout << "Opacity has been transfered to GPU" << endl;
 
 			// init work before building the linked list
 			// -----------------------------------------
@@ -353,6 +368,8 @@ int main()
 
 			glFlush();
 
+			//cout << "Finished initializing head and list" << endl;
+
 			GLuint fragmentNum = 0;
 
 			//1. build linked list
@@ -367,6 +384,8 @@ int main()
 			mesh.Draw();
 
 			fragmentNum = readAtomicCounter(0);
+
+			//cout << "done with build shader" << endl;
 
 			////2. compute matrix H
 			////-------------------
@@ -408,6 +427,8 @@ int main()
 			glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
 			glBindTexture(GL_TEXTURE_2D, 0);
 
+			//cout << "Finished reading head pointers" << endl;
+
 			//read list buffer
 			glBindTexture(GL_TEXTURE_2D, mesh.TEX_LIST);
 			glBindBuffer(GL_TEXTURE_BUFFER, mesh.SBO_LIST);
@@ -438,6 +459,8 @@ int main()
 			glUnmapBuffer(GL_TEXTURE_BUFFER);
 			glBindTexture(GL_TEXTURE_2D, 0);
 
+			//cout << "Finished reading list buffer" << endl;
+
 			for (int i = 0; i < (int)mesh.segmentNum; ++i)
 				for (int j = 0; j < (int)mesh.segmentNum; ++j) engCpp.H[i][j] = 0.0f;
 
@@ -458,27 +481,56 @@ int main()
 							int segId2 = backNode.z;
 							if (curNode.y < backNode.y)
 							{
-								float v = backNode.z - segId2;
+								double v = backNode.z - segId2;
 								engCpp.H[segId][segId2] += 1 - v;
 								if(segId2 + 1 < mesh.segmentNum)
 									engCpp.H[segId][segId2 + 1] += v;
 							}
 							else
 							{
-								float v = curNode.z - segId;
+								double v = curNode.z - segId;
 								engCpp.H[segId2][segId] += 1 - v;
 								if (segId + 1 < mesh.segmentNum)
 									engCpp.H[segId2][segId + 1] += v;
 							}
+							backIndex = backNode.x;
 						}
+						curIndex = curNode.x;
 					}
 				}
 			}
 
+			cout << "Finished computing H phase 1" << endl;
+
+			double maxH = -1.0;
+			for (int i = 0; i < (int)mesh.segmentNum; ++i)
+				for (int j = 0; j < (int)mesh.segmentNum; ++j)
+					maxH = max(maxH, engCpp.H[i][j]);
+
+			if (maxH < EPS)
+			{
+				cout << "maximum element in matrix H <= 0" << endl;
+				cin.get();
+				return -1;
+			}
+
+			for (int i = 0; i < (int)mesh.segmentNum; ++i)
+				for (int j = 0; j < (int)mesh.segmentNum; ++j)
+					engCpp.H[i][j] /= maxH;
+
+			cout << "Finished computing H" << endl;
+
 			engMx.mxData = mxCreateDoubleMatrix(mesh.segmentNum, mesh.segmentNum, mxREAL);
-			engMx.putMxData("H", engCpp.H, sizeof(double) * mesh.segmentNum * mesh.segmentNum);
+			engMx.putMxData("H", &engCpp.H[0][0], sizeof(double) * mesh.segmentNum * mesh.segmentNum);
 
+			cout << "Finished transforming H to MATLAB" << endl;
 
+			cout << "opt..." << endl;
+
+			engEvalString(engMx.ep, "cd \'C:\\Users\\gg\\Documents\\Visual Studio 2015\\Projects\\Lines2015\\Lines2015\'");
+			engEvalString(engMx.ep, "solveOpacity");
+
+			cout << "opt finished" << endl;
 		}
 
 		//3. final display
@@ -507,11 +559,13 @@ int main()
 	// ------------------------------------------------------------------
 	glfwTerminate();
 
-	del2D(H, mesh.segmentNum);
-	del2D(G, mesh.segmentNum);
-	del2D(D, mesh.segmentNum);
+	engCpp.del2D(engCpp.H, mesh.segmentNum);
+	engCpp.del2D(engCpp.G, mesh.segmentNum);
+	engCpp.del2D(engCpp.D, mesh.segmentNum);
+	delete[] engCpp.Od;
+	delete[] engCpp.O;
 
-	engClose(ep);
+	engClose(engMx.ep);
 	return 0;
 }
 

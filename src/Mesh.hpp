@@ -76,6 +76,7 @@ public:
 		cout << "Finished reading the model file." << endl;
 		cout << lines.size() << " lines." << endl;
 		cout << lines.size() * 8 << " segments" << endl;
+		cout << endl;
 		setupMesh();
 	}
 
@@ -257,6 +258,9 @@ private:
 		glGenTextures(1, &TEX_VISIT);
 		glGenBuffers(1, &PBO_SET_VISIT);
 
+		glGenBuffers(1, &SBO_OPACITY);
+		glGenTextures(1, &TEX_OPACITY);
+
 		//glGenTextures(1, &TEX_MAT_H);
 		//glGenBuffers(1, &PBO_READ_MAT_H);
 
@@ -332,7 +336,7 @@ private:
 		glBindTexture(GL_TEXTURE_BUFFER, TEX_OPACITY);
 		glTexBuffer(GL_TEXTURE_BUFFER, GL_R32F, SBO_OPACITY);
 		glBindTexture(GL_TEXTURE_BUFFER, 0);
-		glBindImageTexture(3, TEX_OPACITY, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_R32F);
+		glBindImageTexture(3, TEX_OPACITY, 0, GL_FALSE, 0, GL_READ_WRITE, GL_R32F);
 
 		//GLsync sync = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
 		//glClientWaitSync(sync, 0, 1000000000);
