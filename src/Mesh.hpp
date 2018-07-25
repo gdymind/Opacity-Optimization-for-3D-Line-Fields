@@ -45,7 +45,7 @@ public:
 
 	int segPerLine = 8;
 
-	int segmentNum = 0;
+	int segmentNum = 1;
 
 	GLuint VAO, VBO, EBO; //vertex array object, vertex buffer object, element buffer object
 
@@ -317,14 +317,14 @@ private:
 
 		//set PBO_SET_VISIT: visit initializer
 		glBindBuffer(GL_PIXEL_UNPACK_BUFFER, PBO_SET_VISIT);
-		glBufferData(GL_PIXEL_UNPACK_BUFFER, TOTAL_PIXELS * sizeof(GLuint), NULL, GL_STATIC_DRAW);
-		data = (GLuint *)glMapBuffer(GL_PIXEL_UNPACK_BUFFER, GL_WRITE_ONLY);
+		glBufferData(GL_PIXEL_UNPACK_BUFFER, TOTAL_PIXELS * sizeof(GLuint), NULL, GL_DYNAMIC_DRAW);
+		data = (GLuint *)glMapBuffer(GL_PIXEL_UNPACK_BUFFER, GL_READ_WRITE);
 		memset(data, 0x01, TOTAL_PIXELS * sizeof(GLuint));//non-zero value
 		glUnmapBuffer(GL_PIXEL_UNPACK_BUFFER);
 
 		//set SBO_OPACITY: opacity storage buffer object
 		glBindBuffer(GL_TEXTURE_BUFFER, SBO_OPACITY);
-		glBufferData(GL_TEXTURE_BUFFER, segmentNum * sizeof(float), NULL, GL_DYNAMIC_COPY);
+		glBufferData(GL_TEXTURE_BUFFER, segmentNum * sizeof(float), NULL, GL_DYNAMIC_DRAW);
 		glBindBuffer(GL_TEXTURE_BUFFER, 0);
 
 		//set TEX_OPACITY: opacity texture
@@ -332,25 +332,12 @@ private:
 		glBindTexture(GL_TEXTURE_BUFFER, TEX_OPACITY);
 		glTexBuffer(GL_TEXTURE_BUFFER, GL_R32F, SBO_OPACITY);
 		glBindTexture(GL_TEXTURE_BUFFER, 0);
-		glBindImageTexture(3, TEX_OPACITY, 0, GL_FALSE, 0, GL_READ_WRITE, GL_R32F);
+		glBindImageTexture(3, TEX_OPACITY, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_R32F);
 
-		//initialize opacity: all 1.0f
-		glBindTexture(GL_TEXTURE_2D, TEX_OPACITY);
-		glBindBuffer(GL_TEXTURE_BUFFER, SBO_OPACITY);
-		GLfloat *dataOpacity;
-		dataOpacity = (GLfloat *)glMapBuffer(GL_TEXTURE_BUFFER, GL_WRITE_ONLY);
-		if (dataOpacity == nullptr)
-		{
-			cout << "null dataOpacity pointer" << endl;
-			cin.get();
-		}
-		else
-		{
-			for (int i = 0; i < (int)segmentNum; ++i)
-				dataOpacity[i] = 1.0f;
-		}
-		glUnmapBuffer(GL_TEXTURE_BUFFER);
-		glBindTexture(GL_TEXTURE_2D, 0);
+		//GLsync sync = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+		//glClientWaitSync(sync, 0, 1000000000);
+
+		//glDeleteSync(sync);
 
 		//// set TEX_MAT_H : matrix H texture
 		//glActiveTexture(GL_TEXTURE3);

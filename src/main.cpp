@@ -11,20 +11,81 @@
 
 #include <iostream>
 
-//MATLAB related
+//MATLAB
+//------
 #include "engine.h"
 #pragma comment(lib, "libeng.lib")
 #pragma comment(lib, "libmx.lib")
 #pragma comment(lib, "libmat.lib")
 
+//MATLAB data
+//-----------
+struct ENG_MX
+{
+	Engine *ep;//engine for MATLAB
+	mxArray *mxData;
+
+	void getMxData(const string name, void *data, int size)
+	{
+		mxData = engGetVariable(ep, name.c_str());
+		memcpy(data, mxGetPr(mxData), size);
+		mxDestroyArray(mxData);
+	}
+
+	void putMxData(const string name, void *data, int size)
+	{
+		memcpy(mxGetPr(mxData), data, size);
+		engPutVariable(ep, name.c_str(), mxData);
+		mxDestroyArray(mxData);
+	}
+
+	void putMxData(const string name)
+	{
+		engPutVariable(ep, name.c_str(), mxData);
+		mxDestroyArray(mxData);
+	}
+}engMx;
+
+//C++ data for MATLAB
+//-----------
+struct ENG_CPP
+{
+	double coff[5] = {1.0f, 1.2f, 0.12f, 0.3f, 1.0f};//p, q, r, s, lambda
+	double **H = nullptr;
+	double **G = nullptr;
+	double **D = nullptr;
+	double *Od = nullptr;//double type opacity
+	float *O = nullptr;
+
+	bool flag = false;//to check if the opt solution is available
+
+	void new2D(double **arr, int num)
+	{
+		arr = new double*[num];
+		for (int i = 0; i < num; ++i)
+			arr[i] = new double[num];
+		for (int i = 0; i < num; ++i)
+			for (int j = 0; j < num; ++j) arr[i][j] = 0.0;
+	}
+
+	void del2D(double **arr, int num)
+	{
+		for (int i = 0; i < num; ++i) delete[] arr[i];
+		delete[] arr;
+		arr = nullptr;
+	}
+}engCpp;
+
 //callbacks
+//---------
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void mouse_callback(GLFWwindow* window, double xpos, double ypos);
 //void mouse_button_callback(GLFWwindow* window, int button, int action, int mods);
 void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
 void processInput(GLFWwindow *window);
 
-// camera
+//camera
+//-------
 Camera camera(glm::vec3(0.0f, 0.0f, 1.5f));
 float lastX = SCR_WIDTH / 2.0f;
 float lastY = SCR_HEIGHT / 2.0f;
@@ -32,11 +93,12 @@ bool firstMouse = true;
 glm::mat4 rotMat = glm::mat4(1.0f);
 float rotateHorizontal = 0.0f;
 float rotateVertical = 0.0f;
-
 // timing
 float deltaTime = 0.0f;
 float lastFrame = 0.0f;
 
+//atomic counter
+//--------------
 //index == 0 -> list couter; index == 1 -> debug out
 GLuint readAtomicCounter(int index)
 {
@@ -54,16 +116,18 @@ void setAtomicCounter(int index, GLuint val)
 	glUnmapBuffer(GL_ATOMIC_COUNTER_BUFFER);
 }
 
-const int MAX_SEGMENTS_NUM = 5000;
-float H[MAX_SEGMENTS_NUM * MAX_SEGMENTS_NUM];
-
+//list data
+//---------
 GLuint headPointers[SCR_HEIGHT][SCR_WIDTH];
 glm::vec4 listBuffer[MAX_FRAGMENT_NUM];
 
+//constants
+//---------
 const float EPS = 1e-10;
 
 int main()
 {
+	
 	// glfw: initialize and configure
 	// ------------------------------
 	glfwInit();
@@ -88,7 +152,6 @@ int main()
 	glfwSetCursorPosCallback(window, mouse_callback);
 	glfwSetScrollCallback(window, scroll_callback);
 
-
 	// glad: load all OpenGL function pointers
 	// ---------------------------------------
 	if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
@@ -98,7 +161,6 @@ int main()
 		return -1;
 	}
 
-
 	// configure global opengl state
 	// -----------------------------
 	glDisable(GL_MULTISAMPLE);
@@ -106,11 +168,13 @@ int main()
 	//draw multiple instances using a single call
 	glEnable(GL_PRIMITIVE_RESTART);
 	glPrimitiveRestartIndex(RESTART_NUM);
+	glDisable(GL_DEPTH_TEST);
+	glDisable(GL_CULL_FACE);
 
 	// build and compile shaders
 	// -------------------------
 	Shader buildShader("build.vs", "build.fs");
-	Shader matrixShader("getMatrix.vs", "getMatrix.fs");
+	//Shader matrixShader("getMatrix.vs", "getMatrix.fs");
 	Shader displayShader("display.vs", "display.fs");
 
 	// load models
@@ -118,27 +182,93 @@ int main()
 	Mesh mesh("Data/flow_data/cyclone.obj");
 	//Mesh mesh("Data/flow_data/test.obj");
 
-	GLint max_buffer_size;
-	glGetIntegerv(GL_MAX_TEXTURE_BUFFER_SIZE, &max_buffer_size);
-	cout << "The maximum texture buffer size is " << max_buffer_size << " bytes." << endl;
+	//GLint max_buffer_size;
+	//glGetIntegerv(GL_MAX_TEXTURE_BUFFER_SIZE, &max_buffer_size);
+	//cout << "The maximum texture buffer size is " << max_buffer_size << " bytes." << endl;
 
 	//GLint max_texture_number;
 	//glGetIntegerv(GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS, &max_texture_number);
 	//cout << "The maximum texture number is " << max_texture_number << endl;
 
-	//Engine *ep;//engine for MATLAB
-	//// open engine
-	//if (!(ep = engOpen("\0")))
-	//{
-	//	fprintf(stderr, "Can't start MATLAB engine\n");
-	//	cin.get();
-	//	return EXIT_FAILURE;
-	//}
+	
+	// open engine
+	if (!(engMx.ep = engOpen("\0")))
+	{
+		fprintf(stderr, "Can't start MATLAB engine\n");
+		cin.get();
+		return EXIT_FAILURE;
+	}
+	else
+	{
+		cout << "Finished loading MATLAB engine." << endl;
+	}
 
+	//flag to check if the opt solution is available
+	engMx.mxData = mxCreateLogicalScalar(false);
+	engMx.putMxData("flag");
+
+	//transform coffients
+	engMx.mxData = mxCreateDoubleMatrix(1, 4, mxREAL);
+	engMx.putMxData("coff", engCpp.coff, sizeof(engCpp.coff));
+
+	//initilize matrxies
+	engCpp.new2D(engCpp.H, mesh.segmentNum);
+	engCpp.new2D(engCpp.G, mesh.segmentNum);
+	engCpp.new2D(engCpp.D, mesh.segmentNum);
+
+	//initilize opacity
+	engCpp.Od = new double[mesh.segmentNum];
+	engCpp.O = new float[mesh.segmentNum];
+	for (int i = 0; i < mesh.segmentNum; ++i)
+	{
+		engCpp.Od[i] = 1.0;
+		engCpp.O[i] = 1.0f;
+	}
+
+	//initilize opacity in shader (all 1.0f)
+	glBindTexture(GL_TEXTURE_2D, mesh.TEX_OPACITY);
+	glBindBuffer(GL_TEXTURE_BUFFER, mesh.SBO_OPACITY);
+	void *dataOpacity;
+	dataOpacity = (void *)glMapBuffer(GL_TEXTURE_BUFFER, GL_WRITE_ONLY);
+	if (dataOpacity == nullptr)
+	{
+		cout << "Init: null dataOpacity pointer" << endl;
+		cin.get();
+	}
+	else
+	{
+		memcpy(dataOpacity, engCpp.O, sizeof(float) * mesh.segmentNum);
+	}
+	glUnmapBuffer(GL_TEXTURE_BUFFER);
+	glBindTexture(GL_TEXTURE_2D, 0);
+	glFlush();
+
+	//transfer opacity to MATLAB
+	engMx.mxData = mxCreateDoubleMatrix(1, mesh.segmentNum, mxREAL);
+	engMx.putMxData("O", &engCpp.Od, sizeof(double) * mesh.segmentNum);
+
+
+	//compute matrix D
+	int curSeg = 0;
+	for (int i = 0; i < (int)mesh.lines.size(); ++i)
+	{
+		++curSeg;
+		for (int j = 1; j < mesh.segPerLine; ++j)
+		{
+			engCpp.D[i][curSeg - 1] += 1.0;
+			engCpp.D[i][curSeg] += -1.0;
+		}
+	}
+
+	//compute matrix G with line length
+	double maxLineSize = 0.0;
+	for (int i = 0; i < (int)mesh.lines.size(); ++i)
+		maxLineSize = max(maxLineSize, (double)mesh.lines[i].size());
+	for (int i = 0; i < (int)mesh.segmentNum; ++i)
+		engCpp.G[i][i] = (double)mesh.lines[i / 8].size() / maxLineSize;
 
 	// render loop
 	// -----------
-	int frameNum = 0;
 	while (!glfwWindowShouldClose(window))
 	//for(int ti = 0; ti < 5; ++ti)
 	{
@@ -166,16 +296,39 @@ int main()
 		rotateHorizontal = rotateVertical = 0.0f;
 		rotMat = rotMat2 * rotMat;
 
-		if (frameNum == 100)//compute new opacity
+		glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
+		glClear(GL_COLOR_BUFFER_BIT);
+
+		engMx.getMxData("flag", &engCpp.flag, sizeof(bool));
+		if (engCpp.flag)//compute new opacity
 		{
-			frameNum = 0;
+			engMx.mxData = mxCreateLogicalScalar(false);
+			engMx.putMxData("flag");
+
+			engMx.getMxData("O", &engCpp.Od, sizeof(double) * mesh.segmentNum);
+			for (int i = 0; i < (int)mesh.segmentNum; ++i)
+				engCpp.O[i] = (float)engCpp.Od[i];
+			void *dataOpacity;
+			dataOpacity = (void *)glMapBuffer(GL_TEXTURE_BUFFER, GL_WRITE_ONLY);
+			if (dataOpacity == nullptr)
+			{
+				cout << "null dataOpacity pointer" << endl;
+				cin.get();
+				return -1;
+			}
+			else
+			{
+				memcpy(dataOpacity, engCpp.O, sizeof(float) * mesh.segmentNum);
+			}
+			glUnmapBuffer(GL_TEXTURE_BUFFER);
+			glBindTexture(GL_TEXTURE_2D, 0);
+
+			glFlush();
 
 			// init work before building the linked list
 			// -----------------------------------------
-			glDisable(GL_DEPTH_TEST);
-			glDisable(GL_CULL_FACE);
-			glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
-			glClear(GL_COLOR_BUFFER_BIT);
+			//glDisable(GL_DEPTH_TEST);
+			//glDisable(GL_CULL_FACE);
 
 			//reset list counter
 			setAtomicCounter(0, 0);
@@ -198,6 +351,8 @@ int main()
 			//Bind visit
 			glBindImageTexture(2, mesh.TEX_VISIT, 0, GL_FALSE, 0, GL_READ_WRITE, GL_R32UI);
 
+			glFlush();
+
 			GLuint fragmentNum = 0;
 
 			//1. build linked list
@@ -213,18 +368,18 @@ int main()
 
 			fragmentNum = readAtomicCounter(0);
 
-			//2. compute matrix H
-			//-------------------
-			matrixShader.use();
+			////2. compute matrix H
+			////-------------------
+			//matrixShader.use();
 
-			matrixShader.setVec3("viewDirection", camera.Front);
-			matrixShader.setMat4("modelViewProjectionMatrix", modelViewProjectionMatrix);
-			matrixShader.setFloat("stripWidth", 2 * 2.0f / SCR_WIDTH);//strip width
-			matrixShader.setMat4("transform", rotMat);
+			//matrixShader.setVec3("viewDirection", camera.Front);
+			//matrixShader.setMat4("modelViewProjectionMatrix", modelViewProjectionMatrix);
+			//matrixShader.setFloat("stripWidth", 2 * 2.0f / SCR_WIDTH);//strip width
+			//matrixShader.setMat4("transform", rotMat);
 
-			matrixShader.setInt("segmentNum", mesh.segmentNum);
+			//matrixShader.setInt("segmentNum", mesh.segmentNum);
 
-			mesh.Draw();
+			//mesh.Draw();
 
 			//read head pointers
 			glBindTexture(GL_TEXTURE_2D, mesh.TEX_HEADER);
@@ -240,7 +395,7 @@ int main()
 			else
 			{
 				memcpy(&headPointers[0][0], dataHead, sizeof(GLuint) * TOTAL_PIXELS);
-				/*//ofstream out("head.txt");
+				//ofstream out("head.txt");
 				//for (int i = 0; i < SCR_HEIGHT; ++i)
 				//{
 				//	for (int j = 0; j < SCR_WIDTH; ++j)
@@ -248,7 +403,7 @@ int main()
 				//		out << headPointers[i][j] << '\t';
 				//	}
 				//	out << endl;
-				//}*/
+				//}
 			}
 			glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
 			glBindTexture(GL_TEXTURE_2D, 0);
@@ -272,20 +427,20 @@ int main()
 					memcpy(&tmp, &(listBuffer[i].x), sizeof(int));
 					listBuffer[i].x = (float)tmp;
 				}
-				/*ofstream out("listbuffer.txt");
-				for (int i = 0; i < (int)fragmentNum; ++i)
-				{
-					memcpy(&tmp, &(listBuffer[i].x), sizeof(int));
-					listBuffer[i].x = (float)tmp;
-					out << i << '\t' << listBuffer[i].x << '\t' << listBuffer[i].y << '\t' << listBuffer[i].z << endl;
-				}*/
+				//ofstream out("listbuffer.txt");
+				//for (int i = 0; i < (int)fragmentNum; ++i)
+				//{
+				//	memcpy(&tmp, &(listBuffer[i].x), sizeof(int));
+				//	listBuffer[i].x = (float)tmp;
+				//	out << i << '\t' << listBuffer[i].x << '\t' << listBuffer[i].y << '\t' << listBuffer[i].z << endl;
+				//}
 			}
 			glUnmapBuffer(GL_TEXTURE_BUFFER);
 			glBindTexture(GL_TEXTURE_2D, 0);
 
 			for (int i = 0; i < (int)mesh.segmentNum; ++i)
-				for (int j = 0; j < (int)mesh.segmentNum; ++j)
-					H[i*SCR_HEIGHT + j] = 0.0f;
+				for (int j = 0; j < (int)mesh.segmentNum; ++j) engCpp.H[i][j] = 0.0f;
+
 			for (int i = 0; i < (int)SCR_HEIGHT; ++i)
 			{
 				for (int j = 0; j < (int)SCR_WIDTH; ++j)
@@ -301,22 +456,37 @@ int main()
 						{
 							glm::vec4 &backNode = listBuffer[backIndex];
 							int segId2 = backNode.z;
-							float v = backNode.z - segId2;
-							int k = segId * SCR_HEIGHT + segId2;
-							H[k] += 1 - v;
-							H[k + 1] += v;
+							if (curNode.y < backNode.y)
+							{
+								float v = backNode.z - segId2;
+								engCpp.H[segId][segId2] += 1 - v;
+								if(segId2 + 1 < mesh.segmentNum)
+									engCpp.H[segId][segId2 + 1] += v;
+							}
+							else
+							{
+								float v = curNode.z - segId;
+								engCpp.H[segId2][segId] += 1 - v;
+								if (segId + 1 < mesh.segmentNum)
+									engCpp.H[segId2][segId + 1] += v;
+							}
 						}
 					}
 				}
 			}
+
+			engMx.mxData = mxCreateDoubleMatrix(mesh.segmentNum, mesh.segmentNum, mxREAL);
+			engMx.putMxData("H", engCpp.H, sizeof(double) * mesh.segmentNum * mesh.segmentNum);
+
+
 		}
 
 		//3. final display
 		//glEnable(GL_DEPTH_TEST);
 		//glEnable(GL_CULL_FACE);
 		glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
+		//glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		glClear(GL_COLOR_BUFFER_BIT);
-		//glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BITS);
 		displayShader.use();
 
 		displayShader.setVec3("viewDirection", camera.Front);
@@ -336,6 +506,12 @@ int main()
 	// glfw: terminate, clearing all previously allocated GLFW resources.
 	// ------------------------------------------------------------------
 	glfwTerminate();
+
+	del2D(H, mesh.segmentNum);
+	del2D(G, mesh.segmentNum);
+	del2D(D, mesh.segmentNum);
+
+	engClose(ep);
 	return 0;
 }
 
