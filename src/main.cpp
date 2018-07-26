@@ -25,27 +25,59 @@
 struct ENG_MX
 {
 	Engine *ep;//engine for MATLAB
+	Engine *ep2;//another engine for asynchronous call
 	mxArray *mxData;
 
-	void getMxData(const string name, void *data, int size)
+	void getMxData1D(const string name, double *data, int num)
 	{
 		mxData = engGetVariable(ep, name.c_str());
-		memcpy(data, mxGetPr(mxData), size);
+		memcpy(data, mxGetPr(mxData), num * sizeof(double));
 		mxDestroyArray(mxData);
 	}
 
-	void putMxData(const string name, void *data, int size)
+	void putMxData1D(const string name, double *data, int num)
 	{
-		memcpy(mxGetPr(mxData), data, size);
+		memcpy(mxGetPr(mxData), data, num * sizeof(double));
 		engPutVariable(ep, name.c_str(), mxData);
 		mxDestroyArray(mxData);
 	}
 
-	void putMxData(const string name)
+	//memcpy fails for large data, so specialized functions are designed for 2D array
+	void getMxData2D(const string name, double **data, int num)
+	{
+		double *mxP = mxGetPr(mxData);
+		for (int i = 0; i < num; ++i)
+		{
+			memcpy(data[i], mxP, num * sizeof(double));
+			mxP += num;
+		}
+		mxDestroyArray(mxData);
+	}
+
+	void putMxData2D(const string name, double **data, int num)
+	{
+		double *mxP = mxGetPr(mxData);
+		for (int i = 0; i < num; ++i)
+		{
+			memcpy(mxP, data[i], num * sizeof(double));
+			mxP += num;
+		}
+		mxDestroyArray(mxData);
+	}
+
+	void getMxDataBool(const string name, bool *data)
+	{
+		mxData = engGetVariable(ep, name.c_str());
+		memcpy(data, mxGetPr(mxData), sizeof(bool));
+		mxDestroyArray(mxData);
+	}
+
+	void putMxDataBool(const string name)
 	{
 		engPutVariable(ep, name.c_str(), mxData);
 		mxDestroyArray(mxData);
 	}
+
 }engMx;
 
 //C++ data for MATLAB
@@ -56,24 +88,29 @@ struct ENG_CPP
 	double **H = nullptr;
 	double **G = nullptr;
 	double **D = nullptr;
-	double *Od = nullptr;//double type opacity
-	float *O = nullptr;
+	double *Od = nullptr;//double type opacity (for MATLAB)
+	float *O = nullptr;//double type opacity (for shader)
 
 	bool flag = false;//to check if the opt solution is available
 
 	double** new2D(int num)
 	{
 		double **arr = new double*[num];
+
+		arr[0] = new double[num * num];
+		for (int i = 1; i < num; ++i)
+			arr[i] = arr[i - 1] + num;
+
 		for (int i = 0; i < num; ++i)
-			arr[i] = new double[num];
-		for (int i = 0; i < num; ++i)
-			for (int j = 0; j < num; ++j) arr[i][j] = 5.0;
+			for (int j = 0; j < num; ++j) arr[i][j] = 0.0;
+
 		return arr;
 	}
 
 	void del2D(double **arr, int num)
 	{
-		for (int i = 0; i < num; ++i) delete[] arr[i];
+		//for (int i = 0; i < num; ++i) delete[] arr[i];
+		delete arr[0];
 		delete[] arr;
 		arr = nullptr;
 	}
@@ -193,7 +230,7 @@ int main()
 	//cout << "The maximum texture number is " << max_texture_number << endl;
 	
 	// open engine
-	cout << "Initializing MATLAB engine..." << endl;
+	cout << "Loading MATLAB engine..." << endl;
 	if (!(engMx.ep = engOpen("\0")))
 	{
 		fprintf(stderr, "Can't start MATLAB engine\n");
@@ -207,16 +244,22 @@ int main()
 
 	//flag to check if the opt solution is available
 	engMx.mxData = mxCreateLogicalScalar(true);
-	engMx.putMxData("flag");
+	engMx.putMxDataBool("flag");
 
 	//transform coffients
-	engMx.mxData = mxCreateDoubleMatrix(1, 4, mxREAL);
-	engMx.putMxData("coff", engCpp.coff, sizeof(engCpp.coff));
+	engMx.mxData = mxCreateDoubleMatrix(1, 5, mxREAL);
+	engMx.putMxData1D("coff", engCpp.coff, 5);
 
 	//initilize matrxies
 	engCpp.H = engCpp.new2D(mesh.segmentNum);
 	engCpp.G = engCpp.new2D(mesh.segmentNum);
 	engCpp.D = engCpp.new2D(mesh.segmentNum);
+	//engCpp.H = new double[mesh.segmentNum * mesh.segmentNum];
+	//engCpp.G = new double[mesh.segmentNum * mesh.segmentNum];
+	//engCpp.D = new double[mesh.segmentNum * mesh.segmentNum];
+	//memset(engCpp.H, 0, sizeof(double) * mesh.segmentNum * mesh.segmentNum);
+	//memset(engCpp.G, 0, sizeof(double) * mesh.segmentNum * mesh.segmentNum);
+	//memset(engCpp.D, 0, sizeof(double) * mesh.segmentNum * mesh.segmentNum);
 
 	//initilize opacity
 	engCpp.Od = new double[mesh.segmentNum];
@@ -248,9 +291,9 @@ int main()
 
 	//transfer opacity to MATLAB
 	engMx.mxData = mxCreateDoubleMatrix(1, mesh.segmentNum, mxREAL);
-	engMx.putMxData("O", &engCpp.Od, sizeof(double) * mesh.segmentNum);
+	engMx.putMxData1D("O", engCpp.Od, mesh.segmentNum);
 
-	//compute matrix D
+	//compute matrix D and transfer it to MATLAB
 	int curSeg = 0;
 	for (int i = 0; i < (int)mesh.lines.size(); ++i)
 	{
@@ -261,19 +304,17 @@ int main()
 			engCpp.D[i][curSeg] += -1.0;
 		}
 	}
+	engMx.mxData = mxCreateDoubleMatrix(mesh.segmentNum, mesh.segmentNum, mxREAL);
+	engMx.putMxData2D("D", engCpp.D, mesh.segmentNum);
 
-	engMx.putMxData("D", engCpp.D[0], sizeof(double) * mesh.segmentNum * mesh.segmentNum);
-
-
-	cout << "Finished transforming D to MATLAB" << endl;
-	cin.get();
-
-	//compute matrix G with line length
+	//compute matrix G with line length, and transfer it to MATLAB
 	double maxLineSize = 0.0;
 	for (int i = 0; i < (int)mesh.lines.size(); ++i)
 		maxLineSize = max(maxLineSize, (double)mesh.lines[i].size());
 	for (int i = 0; i < (int)mesh.segmentNum; ++i)
 		engCpp.G[i][i] = (double)mesh.lines[i / 8].size() / maxLineSize;
+	engMx.mxData = mxCreateDoubleMatrix(mesh.segmentNum, mesh.segmentNum, mxREAL);
+	engMx.putMxData2D("G", engCpp.G, mesh.segmentNum);
 
 	// render loop
 	// -----------
@@ -308,14 +349,16 @@ int main()
 		glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT);
 
-		engMx.getMxData("flag", &engCpp.flag, sizeof(bool));
+		//engMx.mxData = mxCreateLogicalScalar(false);
+		engMx.getMxDataBool("flag", &engCpp.flag);
 		if (engCpp.flag)//compute new opacity
 		{
-			cout << "update times: " << ++updateTimes << endl;
+			cout << "Update times: " << ++updateTimes << endl;
 			engMx.mxData = mxCreateLogicalScalar(false);
-			engMx.putMxData("flag");
+			engMx.putMxDataBool("flag");
 
-			engMx.getMxData("O", &engCpp.Od, sizeof(double) * mesh.segmentNum);
+			//engMx.mxData = mxCreateDoubleMatrix(1, mesh.segmentNum, mxREAL);
+			engMx.getMxData1D("O", engCpp.Od, mesh.segmentNum);
 			for (int i = 0; i < (int)mesh.segmentNum; ++i)
 				engCpp.O[i] = (float)engCpp.Od[i];
 
@@ -462,7 +505,8 @@ int main()
 			//cout << "Finished reading list buffer" << endl;
 
 			for (int i = 0; i < (int)mesh.segmentNum; ++i)
-				for (int j = 0; j < (int)mesh.segmentNum; ++j) engCpp.H[i][j] = 0.0f;
+				for (int j = 0; j < (int)mesh.segmentNum; ++j)
+					engCpp.H[i][j] = 0.0f;
 
 			for (int i = 0; i < (int)SCR_HEIGHT; ++i)
 			{
@@ -504,7 +548,7 @@ int main()
 
 			double maxH = -1.0;
 			for (int i = 0; i < (int)mesh.segmentNum; ++i)
-				for (int j = 0; j < (int)mesh.segmentNum; ++j)
+				for(int j = 0; j < (int)mesh.segmentNum; ++j)
 					maxH = max(maxH, engCpp.H[i][j]);
 
 			if (maxH < EPS)
@@ -515,15 +559,10 @@ int main()
 			}
 
 			for (int i = 0; i < (int)mesh.segmentNum; ++i)
-				for (int j = 0; j < (int)mesh.segmentNum; ++j)
-					engCpp.H[i][j] /= maxH;
-
-			cout << "Finished computing H" << endl;
-
+				for (int j = 0; j < (int)mesh.segmentNum; ++j) engCpp.H[i][j] /= maxH;
+					
 			engMx.mxData = mxCreateDoubleMatrix(mesh.segmentNum, mesh.segmentNum, mxREAL);
-			engMx.putMxData("H", &engCpp.H[0][0], sizeof(double) * mesh.segmentNum * mesh.segmentNum);
-
-			cout << "Finished transforming H to MATLAB" << endl;
+			engMx.putMxData2D("H", engCpp.H, mesh.segmentNum);
 
 			cout << "opt..." << endl;
 
@@ -559,9 +598,9 @@ int main()
 	// ------------------------------------------------------------------
 	glfwTerminate();
 
-	engCpp.del2D(engCpp.H, mesh.segmentNum);
-	engCpp.del2D(engCpp.G, mesh.segmentNum);
-	engCpp.del2D(engCpp.D, mesh.segmentNum);
+	delete[] engCpp.H;
+	delete[] engCpp.G;
+	delete[] engCpp.D;
 	delete[] engCpp.Od;
 	delete[] engCpp.O;
 
