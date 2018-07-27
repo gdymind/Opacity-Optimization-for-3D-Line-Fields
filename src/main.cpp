@@ -11,6 +11,8 @@
 
 #include <iostream>
 
+#pragma comment(linker, "/HEAP:1500000000")
+
 //#include <boost/thread.hpp>
 
 //MATLAB
@@ -220,8 +222,8 @@ int main()
 
 	// load models
 	// -----------
-	//Mesh mesh("Data/flow_data/cyclone.obj");
-	Mesh mesh("Data/flow_data/test.obj");
+	Mesh mesh("Data/flow_data/cyclone.obj");
+	//Mesh mesh("Data/flow_data/test.obj");
 
 	//GLint max_buffer_size;
 	//glGetIntegerv(GL_MAX_TEXTURE_BUFFER_SIZE, &max_buffer_size);
@@ -501,85 +503,77 @@ int main()
 					memcpy(&tmp, &(listBuffer[i].x), sizeof(int));
 					listBuffer[i].x = (float)tmp;
 				}
-				//ofstream out("listbuffer.txt");
-				//for (int i = 0; i < (int)fragmentNum; ++i)
-				//{
-				//	memcpy(&tmp, &(listBuffer[i].x), sizeof(int));
-				//	listBuffer[i].x = (float)tmp;
-				//	out << i << '\t' << listBuffer[i].x << '\t' << listBuffer[i].y << '\t' << listBuffer[i].z << endl;
-				//}
+				ofstream out("listbuffer.txt");
+				for (int i = 0; i < (int)fragmentNum; ++i)
+				{
+					memcpy(&tmp, &(listBuffer[i].x), sizeof(int));
+					out << i << '\t' << listBuffer[i].x << '\t' << listBuffer[i].y << '\t' << listBuffer[i].z << endl;
+				}
+				out.close();
 			}
 			glUnmapBuffer(GL_TEXTURE_BUFFER);
 			glBindTexture(GL_TEXTURE_2D, 0);
 
-			//cin.get();
+			//cout << "Finished reading list buffer" << endl;
 
-			////cout << "Finished reading list buffer" << endl;
+			for (int i = 0; i < (int)mesh.segmentNum; ++i)
+				for (int j = 0; j < (int)mesh.segmentNum; ++j)
+					engCpp.H[i][j] = 0.0f;
 
-			//for (int i = 0; i < (int)mesh.segmentNum; ++i)
-			//	for (int j = 0; j < (int)mesh.segmentNum; ++j)
-			//		engCpp.H[i][j] = 0.0f;
+			for (int i = 0; i < (int)SCR_HEIGHT; ++i)
+			{
+				for (int j = 0; j < (int)SCR_WIDTH; ++j)
+				{
+					int curIndex = headPointers[i][j];
+					while (curIndex > EPS)
+					{
+						// x,y,z,w: next pointer, depth, weight, reserved
+						glm::vec4 &curNode = listBuffer[curIndex];
+						int segId = curNode.z;
+						int backIndex = curNode.x;
+						while (backIndex > EPS)
+						{
+							glm::vec4 &backNode = listBuffer[backIndex];
+							int segId2 = backNode.z;
+							if (curNode.y < backNode.y)
+							{
+								double v = backNode.z - segId2;
+								engCpp.H[segId][segId2] += 1 - v;
+								if(segId2 + 1 < mesh.segmentNum)
+									engCpp.H[segId][segId2 + 1] += v;
+							}
+							else
+							{
+								double v = curNode.z - segId;
+								engCpp.H[segId2][segId] += 1 - v;
+								if (segId + 1 < mesh.segmentNum)
+									engCpp.H[segId2][segId + 1] += v;
+							}
+							backIndex = backNode.x;
+						}
+						curIndex = curNode.x;
+					}
+				}
+			}
 
-			//for (int i = 0; i < (int)SCR_HEIGHT; ++i)
-			//{
-			//	for (int j = 0; j < (int)SCR_WIDTH; ++j)
-			//	{
-			//		int curIndex = headPointers[i][j];
-			//		while (curIndex > EPS)
-			//		{
-			//			// x,y,z,w: next pointer, depth, weight, reserved
-			//			glm::vec4 &curNode = listBuffer[curIndex];
-			//			int segId = curNode.z;
-			//			int backIndex = curNode.x;
-			//			while (backIndex > EPS)
-			//			{
-			//				glm::vec4 &backNode = listBuffer[backIndex];
-			//				int segId2 = backNode.z;
-			//				if (curNode.y < backNode.y)
-			//				{
-			//					double v = backNode.z - segId2;
-			//					engCpp.H[segId][segId2] += 1 - v;
-			//					if(segId2 + 1 < mesh.segmentNum)
-			//						engCpp.H[segId][segId2 + 1] += v;
-			//				}
-			//				else
-			//				{
-			//					double v = curNode.z - segId;
-			//					engCpp.H[segId2][segId] += 1 - v;
-			//					if (segId + 1 < mesh.segmentNum)
-			//						engCpp.H[segId2][segId + 1] += v;
-			//				}
-			//				backIndex = backNode.x;
-			//			}
-			//			curIndex = curNode.x;
-			//		}
-			//	}
-			//}
+			double maxH = 0.0;
+			for (int i = 0; i < (int)mesh.segmentNum; ++i)
+				for(int j = 0; j < (int)mesh.segmentNum; ++j)
+					maxH = max(maxH, engCpp.H[i][j]);
 
-			//cout << "Finished computing H phase 1" << endl;
+			if (maxH > EPS)
+			{
+				for (int i = 0; i < (int)mesh.segmentNum; ++i)
+					for (int j = 0; j < (int)mesh.segmentNum; ++j) engCpp.H[i][j] /= maxH;
+			}
+		
+			engMx.mxData = mxCreateDoubleMatrix(mesh.segmentNum, mesh.segmentNum, mxREAL);
+			engMx.putMxData2D("H", engCpp.H, mesh.segmentNum);
 
-			//double maxH = -1.0;
-			//for (int i = 0; i < (int)mesh.segmentNum; ++i)
-			//	for(int j = 0; j < (int)mesh.segmentNum; ++j)
-			//		maxH = max(maxH, engCpp.H[i][j]);
+			engEvalString(engMx.ep, "cd 'G:/MatlabWorkSpace/'");
+			engEvalString(engMx.ep, "solveOpacity");
 
-			//if (maxH < EPS)
-			//{
-			//	cout << "maximum element in matrix H <= 0" << endl;
-			//	cin.get();
-			//	return -1;
-			//}
-
-			//for (int i = 0; i < (int)mesh.segmentNum; ++i)
-			//	for (int j = 0; j < (int)mesh.segmentNum; ++j) engCpp.H[i][j] /= maxH;
-			//		
-			//engMx.mxData = mxCreateDoubleMatrix(mesh.segmentNum, mesh.segmentNum, mxREAL);
-			//engMx.putMxData2D("H", engCpp.H, mesh.segmentNum);
-
-			//engEvalString(engMx.ep, "cd 'G:/MatlabWorkSpace/'");
-			//engEvalString(engMx.ep, "solveOpacity");
-
-			//cout << "opt finished" << endl;
+			cout << "Update 1 finished" << endl << endl;
 		}
 
 		//3. final display
