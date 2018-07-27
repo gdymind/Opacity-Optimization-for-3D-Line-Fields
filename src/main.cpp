@@ -101,9 +101,8 @@ struct ENG_CPP
 	{
 		double **arr = new double*[num];
 
-		arr[0] = new double[num * num];
-		for (int i = 1; i < num; ++i)
-			arr[i] = arr[i - 1] + num;
+		for(int i = 0; i < num; ++i)
+			arr[i] = new double[num];
 
 		for (int i = 0; i < num; ++i)
 			for (int j = 0; j < num; ++j) arr[i][j] = 0.0;
@@ -113,8 +112,7 @@ struct ENG_CPP
 
 	void del2D(double **arr, int num)
 	{
-		//for (int i = 0; i < num; ++i) delete[] arr[i];
-		delete arr[0];
+		for (int i = 0; i < num; ++i) delete[] arr[i];
 		delete[] arr;
 		arr = nullptr;
 	}
