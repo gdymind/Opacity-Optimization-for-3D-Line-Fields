@@ -45,6 +45,7 @@ struct ENG_MX
 	//memcpy fails for large data, so specialized functions are designed for 2D array
 	void getMxData2D(const string name, double **data, int num)
 	{
+		mxData = engGetVariable(ep, name.c_str());
 		double *mxP = mxGetPr(mxData);
 		for (int i = 0; i < num; ++i)
 		{
@@ -62,6 +63,7 @@ struct ENG_MX
 			memcpy(mxP, data[i], num * sizeof(double));
 			mxP += num;
 		}
+		engPutVariable(ep, name.c_str(), mxData);
 		mxDestroyArray(mxData);
 	}
 
@@ -218,8 +220,8 @@ int main()
 
 	// load models
 	// -----------
-	Mesh mesh("Data/flow_data/cyclone.obj");
-	//Mesh mesh("Data/flow_data/test.obj");
+	//Mesh mesh("Data/flow_data/cyclone.obj");
+	Mesh mesh("Data/flow_data/test.obj");
 
 	//GLint max_buffer_size;
 	//glGetIntegerv(GL_MAX_TEXTURE_BUFFER_SIZE, &max_buffer_size);
@@ -294,18 +296,22 @@ int main()
 	engMx.putMxData1D("O", engCpp.Od, mesh.segmentNum);
 
 	//compute matrix D and transfer it to MATLAB
-	int curSeg = 0;
-	for (int i = 0; i < (int)mesh.lines.size(); ++i)
+	for (int i = 0; i < (int)mesh.segmentNum; ++i)
 	{
-		++curSeg;
-		for (int j = 1; j < mesh.segPerLine; ++j, ++curSeg)
+		if (i % mesh.segPerLine)
 		{
-			engCpp.D[i][curSeg - 1] += 1.0;
-			engCpp.D[i][curSeg] += -1.0;
+			engCpp.D[i][i] += 1.0;
+			engCpp.D[i][i-1] += -1.0;
 		}
 	}
 	engMx.mxData = mxCreateDoubleMatrix(mesh.segmentNum, mesh.segmentNum, mxREAL);
 	engMx.putMxData2D("D", engCpp.D, mesh.segmentNum);
+	//for (int i = 0; i < mesh.segmentNum; ++i)
+	//{
+	//	for (int j = 0; j < mesh.segmentNum; ++j)
+	//		cout << engCpp.D[i][j] << ' ';
+	//	cout << endl;
+	//}
 
 	//compute matrix G with line length, and transfer it to MATLAB
 	double maxLineSize = 0.0;
@@ -315,6 +321,10 @@ int main()
 		engCpp.G[i][i] = (double)mesh.lines[i / 8].size() / maxLineSize;
 	engMx.mxData = mxCreateDoubleMatrix(mesh.segmentNum, mesh.segmentNum, mxREAL);
 	engMx.putMxData2D("G", engCpp.G, mesh.segmentNum);
+
+	//for (int i = 0; i < mesh.lines.size(); ++i)
+	//	cout << "line " << i << " size: " << mesh.lines[i].size() << endl;
+	//cin.get();
 
 	// render loop
 	// -----------
@@ -502,74 +512,74 @@ int main()
 			glUnmapBuffer(GL_TEXTURE_BUFFER);
 			glBindTexture(GL_TEXTURE_2D, 0);
 
-			//cout << "Finished reading list buffer" << endl;
+			//cin.get();
 
-			for (int i = 0; i < (int)mesh.segmentNum; ++i)
-				for (int j = 0; j < (int)mesh.segmentNum; ++j)
-					engCpp.H[i][j] = 0.0f;
+			////cout << "Finished reading list buffer" << endl;
 
-			for (int i = 0; i < (int)SCR_HEIGHT; ++i)
-			{
-				for (int j = 0; j < (int)SCR_WIDTH; ++j)
-				{
-					int curIndex = headPointers[i][j];
-					while (curIndex > EPS)
-					{
-						// x,y,z,w: next pointer, depth, weight, reserved
-						glm::vec4 &curNode = listBuffer[curIndex];
-						int segId = curNode.z;
-						int backIndex = curNode.x;
-						while (backIndex > EPS)
-						{
-							glm::vec4 &backNode = listBuffer[backIndex];
-							int segId2 = backNode.z;
-							if (curNode.y < backNode.y)
-							{
-								double v = backNode.z - segId2;
-								engCpp.H[segId][segId2] += 1 - v;
-								if(segId2 + 1 < mesh.segmentNum)
-									engCpp.H[segId][segId2 + 1] += v;
-							}
-							else
-							{
-								double v = curNode.z - segId;
-								engCpp.H[segId2][segId] += 1 - v;
-								if (segId + 1 < mesh.segmentNum)
-									engCpp.H[segId2][segId + 1] += v;
-							}
-							backIndex = backNode.x;
-						}
-						curIndex = curNode.x;
-					}
-				}
-			}
+			//for (int i = 0; i < (int)mesh.segmentNum; ++i)
+			//	for (int j = 0; j < (int)mesh.segmentNum; ++j)
+			//		engCpp.H[i][j] = 0.0f;
 
-			cout << "Finished computing H phase 1" << endl;
+			//for (int i = 0; i < (int)SCR_HEIGHT; ++i)
+			//{
+			//	for (int j = 0; j < (int)SCR_WIDTH; ++j)
+			//	{
+			//		int curIndex = headPointers[i][j];
+			//		while (curIndex > EPS)
+			//		{
+			//			// x,y,z,w: next pointer, depth, weight, reserved
+			//			glm::vec4 &curNode = listBuffer[curIndex];
+			//			int segId = curNode.z;
+			//			int backIndex = curNode.x;
+			//			while (backIndex > EPS)
+			//			{
+			//				glm::vec4 &backNode = listBuffer[backIndex];
+			//				int segId2 = backNode.z;
+			//				if (curNode.y < backNode.y)
+			//				{
+			//					double v = backNode.z - segId2;
+			//					engCpp.H[segId][segId2] += 1 - v;
+			//					if(segId2 + 1 < mesh.segmentNum)
+			//						engCpp.H[segId][segId2 + 1] += v;
+			//				}
+			//				else
+			//				{
+			//					double v = curNode.z - segId;
+			//					engCpp.H[segId2][segId] += 1 - v;
+			//					if (segId + 1 < mesh.segmentNum)
+			//						engCpp.H[segId2][segId + 1] += v;
+			//				}
+			//				backIndex = backNode.x;
+			//			}
+			//			curIndex = curNode.x;
+			//		}
+			//	}
+			//}
 
-			double maxH = -1.0;
-			for (int i = 0; i < (int)mesh.segmentNum; ++i)
-				for(int j = 0; j < (int)mesh.segmentNum; ++j)
-					maxH = max(maxH, engCpp.H[i][j]);
+			//cout << "Finished computing H phase 1" << endl;
 
-			if (maxH < EPS)
-			{
-				cout << "maximum element in matrix H <= 0" << endl;
-				cin.get();
-				return -1;
-			}
+			//double maxH = -1.0;
+			//for (int i = 0; i < (int)mesh.segmentNum; ++i)
+			//	for(int j = 0; j < (int)mesh.segmentNum; ++j)
+			//		maxH = max(maxH, engCpp.H[i][j]);
 
-			for (int i = 0; i < (int)mesh.segmentNum; ++i)
-				for (int j = 0; j < (int)mesh.segmentNum; ++j) engCpp.H[i][j] /= maxH;
-					
-			engMx.mxData = mxCreateDoubleMatrix(mesh.segmentNum, mesh.segmentNum, mxREAL);
-			engMx.putMxData2D("H", engCpp.H, mesh.segmentNum);
+			//if (maxH < EPS)
+			//{
+			//	cout << "maximum element in matrix H <= 0" << endl;
+			//	cin.get();
+			//	return -1;
+			//}
 
-			cout << "opt..." << endl;
+			//for (int i = 0; i < (int)mesh.segmentNum; ++i)
+			//	for (int j = 0; j < (int)mesh.segmentNum; ++j) engCpp.H[i][j] /= maxH;
+			//		
+			//engMx.mxData = mxCreateDoubleMatrix(mesh.segmentNum, mesh.segmentNum, mxREAL);
+			//engMx.putMxData2D("H", engCpp.H, mesh.segmentNum);
 
-			engEvalString(engMx.ep, "cd \'C:\\Users\\gg\\Documents\\Visual Studio 2015\\Projects\\Lines2015\\Lines2015\'");
-			engEvalString(engMx.ep, "solveOpacity");
+			//engEvalString(engMx.ep, "cd 'G:/MatlabWorkSpace/'");
+			//engEvalString(engMx.ep, "solveOpacity");
 
-			cout << "opt finished" << endl;
+			//cout << "opt finished" << endl;
 		}
 
 		//3. final display
