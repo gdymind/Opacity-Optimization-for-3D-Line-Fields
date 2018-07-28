@@ -11,9 +11,9 @@
 
 #include <iostream>
 
-//#pragma comment(linker, "/HEAP:1500000000")
+#pragma comment(linker, "/HEAP:1500000000")
 
-#include <boost/thread.hpp>
+//#include <boost/thread.hpp>
 
 //MATLAB
 //------
@@ -27,6 +27,7 @@
 struct ENG_MX
 {
 	Engine *ep;//engine for MATLAB
+	Engine *ep2;//another engine for asynchronous call
 	mxArray *mxData;
 
 	void getMxData1D(const string name, double *data, int num)
@@ -116,18 +117,6 @@ struct ENG_CPP
 		arr = nullptr;
 	}
 }engCpp;
-
-void asyncEvalString()
-{
-	Engine* ep;
-	if (!(ep = engOpen("\0")))
-	{
-		fprintf(stderr, "Can't start another MATLAB engine\n");
-		cin.get();
-	}
-	engEvalString(ep, "cd 'G:/MatlabWorkSpace/'");
-	engEvalString(ep, "solveOpacity");
-}
 
 //callbacks
 //---------
@@ -579,8 +568,8 @@ int main()
 			engMx.mxData = mxCreateDoubleMatrix(mesh.segmentNum, mesh.segmentNum, mxREAL);
 			engMx.putMxData2D("H", engCpp.H, mesh.segmentNum);
 
-			boost::thread asyncEvalString(&asyncEvalString);
-			//boost::this_thread::sleep(boost::posix_time::seconds(1));
+			engEvalString(engMx.ep, "cd 'G:/MatlabWorkSpace/'");
+			engEvalString(engMx.ep, "solveOpacity");
 
 			cout << "Update 1 finished" << endl << endl;
 		}
