@@ -26,14 +26,14 @@ void main(void)
 	float opa2 = imageLoad(opacityBuffer, int(segId+1)).x;
 	float opa = opa1 + (opa2 - opa1) * w;
 
-	if (abs(TexCoords.y - 0.5f) < 0.25f)//center
+	if (abs(TexCoords.y - 0.5f) < 0.4f)//center
 	{
 		gl_FragDepth = gl_FragCoord.z;
 		//FragColor = vec4(0.0f, 0.0f, 0.0f, opa);
 	}
 	else
 	{
-		gl_FragDepth = gl_FragCoord.z - 0.000001f  * abs(TexCoords.y - 0.5);
+		gl_FragDepth = gl_FragCoord.z - 0.00001f  * abs(TexCoords.y - 0.5);
 		//FragColor = vec4(1.0f, 1.0f, 1.0f, opa);
 	}
 
