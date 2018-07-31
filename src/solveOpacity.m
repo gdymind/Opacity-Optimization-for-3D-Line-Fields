@@ -1,6 +1,5 @@
-segmentNum = size(D, 1);
+H = H.';
 
-I = eye(segmentNum);
 W = ((I-G)^coff(5)) * H * G;
 
 Q = coff(1) * I;
@@ -10,9 +9,8 @@ Q = Q + coff(4) * (D.' * D);
 
 c = -1 * ones(segmentNum, 1);
 
-lb = zeros(segmentNum, 0);
-ub = ones(sgementNum, 1);
-
+lb = zeros(segmentNum, 1);
+ub = ones(segmentNum, 1);
 
 if (size(O, 1) == 1)
     O = O.';
