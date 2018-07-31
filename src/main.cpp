@@ -124,6 +124,11 @@ struct ENG_CPP
 		maxLineSize /= 0.95;
 		for (int i = 0; i < (int)mesh.segmentNum; ++i)
 			G[i] = (double)mesh.lines[i / mesh.segPerLine].size() / maxLineSize;
+		for (int i = 0; i < (int)mesh.segmentNum; ++i)
+			if (i < mesh.segmentNum / 2)
+				G[i] = .8;
+			else
+				G[i] = 0.001;
 	}
 }engCpp;
 
@@ -190,52 +195,23 @@ const double EPS = 1e-10;
 
 using namespace std;
 
+void initGlfw();
+void glfwWindowCreate(GLFWwindow* window);
+void openglConfig();
+
 int main()
 {
-	// glfw: initialize and configure
-	// ------------------------------
-	glfwInit();
-	//OpenGL version 4.6
-	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
-	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-	//glfwWindowHint(GLFW_DECORATED, false);//remove title bar for debugging(otherwise the minimum width is too big)
-	//glfwWindowHint(GLFW_SAMPLES, 4);
+	initGlfw();
 
 	// glfw window creation
-	// --------------------
 	GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "Lines", NULL, NULL);
-	if (window == NULL)
-	{
-		std::cout << "Failed to create GLFW window" << std::endl;
-		glfwTerminate();
-		return -1;
-	}
-	glfwMakeContextCurrent(window);
-	glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
-	glfwSetCursorPosCallback(window, mouse_callback);
-	glfwSetScrollCallback(window, scroll_callback);
+	glfwWindowCreate(window);
 
 	// glad: load all OpenGL function pointers
-	// ---------------------------------------
-	if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
-	{
-		std::cout << "Failed to initialize GLAD" << std::endl;
-		cin.get();
-		return 0;
-	}
+	gladLoadGLLoader((GLADloadproc)glfwGetProcAddress);
 
 	// configure global opengl state
-	// -----------------------------
-	glDisable(GL_MULTISAMPLE);
-	//glEnable(GL_MULTISAMPLE);
-	//draw multiple instances using a single call
-	glEnable(GL_PRIMITIVE_RESTART);
-	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-	glPrimitiveRestartIndex(RESTART_NUM);
-	glDisable(GL_DEPTH_TEST);
-	glDisable(GL_CULL_FACE);
+	openglConfig();
 
 	// build and compile shaders
 	// -------------------------
@@ -245,22 +221,14 @@ int main()
 
 	// load models
 	// -----------
-	Mesh mesh("Data/flow_data/cyclone.obj");
-	//Mesh mesh("Data/flow_data/test.obj");
+	//Mesh mesh("Data/flow_data/cyclone.obj");
+	Mesh mesh("Data/flow_data/test.obj");
 	
-	//initialize MATLAB
+	//load MATLAB engine
 	//-----------------
 	cout << "Loading MATLAB engine..." << endl;
-	if (!(engMx.ep = engOpen("\0")))
-	{
-		fprintf(stderr, "Can't start MATLAB engine\n");
-		cin.get();
-		return EXIT_FAILURE;
-	}
-	else
-	{
-		cout << "Finished loading MATLAB engine." << endl << endl;
-	}
+	assert((engMx.ep = engOpen("\0")) != nullptr);
+	cout << "Finished loading MATLAB engine." << endl << endl;
 
 	//transfer coffients / segment number / segPerLine
 	engMx.mxData = mxCreateDoubleMatrix(1, 5, mxREAL);
@@ -281,7 +249,7 @@ int main()
 
 	//initilize opacity
 	for (int i = 0; i < mesh.segmentNum; ++i) 
-		engCpp.Od[i] = 1.0, engCpp.O[i] = 1.0f;
+		engCpp.Od[i] = 1.0, engCpp.O[i] = 0.0f;
 
 	//compute matrix G with line length, and transfer it to MATLAB
 	engCpp.importanceLength(mesh);
@@ -296,8 +264,8 @@ int main()
 	// render loop
 	// -----------
 	int updateTimes = 0;
-	//while (!glfwWindowShouldClose(window))
-	for(int ti = 0; ti < 2; ++ti)
+	while (!glfwWindowShouldClose(window))
+	//for(int ti = 0; ti < 2; ++ti)
 	{
 		// per-frame time logic
 		// --------------------
@@ -391,7 +359,7 @@ int main()
 
 			buildShader.setVec3("viewDirection", camera.Front);
 			buildShader.setMat4("modelViewProjectionMatrix", modelViewProjectionMatrix);
-			buildShader.setFloat("stripWidth", 2 * 20.0f / SCR_WIDTH);//strip width
+			buildShader.setFloat("stripWidth", 2 * 10.0f / SCR_WIDTH);//strip width
 			buildShader.setMat4("transform", rotMat);
 
 			mesh.Draw();
@@ -535,7 +503,7 @@ int main()
 
 		displayShader.setVec3("viewDirection", camera.Front);
 		displayShader.setMat4("modelViewProjectionMatrix", modelViewProjectionMatrix);
-		displayShader.setFloat("stripWidth", 2 * 5.0f / SCR_WIDTH);//strip width
+		displayShader.setFloat("stripWidth", 2 * 3.0f / SCR_WIDTH);//strip width
 		displayShader.setMat4("transform", rotMat);
 
 		mesh.Draw();
@@ -558,6 +526,43 @@ int main()
 
 	//engClose(engMx.ep);
 	return 0;
+}
+
+void initGlfw()
+{
+	// glfw: initialize and configure
+	// ------------------------------
+	glfwInit();
+	//OpenGL version 4.6
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
+	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+	//glfwWindowHint(GLFW_DECORATED, false);//remove title bar for debugging(otherwise the minimum width is too big)
+	//glfwWindowHint(GLFW_SAMPLES, 4);
+}
+
+void glfwWindowCreate(GLFWwindow* window)
+{
+	assert(window != nullptr);
+	glfwMakeContextCurrent(window);
+	glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
+	glfwSetCursorPosCallback(window, mouse_callback);
+	glfwSetScrollCallback(window, scroll_callback);
+}
+
+void openglConfig()
+{
+	// configure global opengl state
+	// -----------------------------
+	glDisable(GL_MULTISAMPLE);
+	//glEnable(GL_MULTISAMPLE);
+	//draw multiple instances using a single call
+	glEnable(GL_PRIMITIVE_RESTART);
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	glPrimitiveRestartIndex(RESTART_NUM);
+	glDisable(GL_DEPTH_TEST);
+	glDisable(GL_CULL_FACE);
 }
 
 // process all input: query GLFW whether relevant keys are pressed/released this frame and react accordingly
