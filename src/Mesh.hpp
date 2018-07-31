@@ -23,7 +23,7 @@ const unsigned int RESTART_NUM = 0x5FFFFFu;//primitive restart number
 const unsigned int SCR_WIDTH = 600;
 const unsigned int SCR_HEIGHT = SCR_WIDTH;
 const unsigned int TOTAL_PIXELS = SCR_WIDTH * SCR_HEIGHT;
-const unsigned int MAX_FRAGMENT_NUM = 8000000;
+const unsigned int MAX_FRAGMENT_NUM = 10000000;
 
 struct Vertex {
 	glm::vec3 Position;
@@ -114,6 +114,8 @@ private:
 			stringstream ss(buf);//line string stream
 			string type;//v vt g l
 			getline(ss, type, ' ');
+
+			//if (lines.size() == 500) break;
 
 			if (type == "v")//a vertex
 			{
@@ -337,6 +339,17 @@ private:
 		glTexBuffer(GL_TEXTURE_BUFFER, GL_R32F, SBO_OPACITY);
 		glBindTexture(GL_TEXTURE_BUFFER, 0);
 		glBindImageTexture(3, TEX_OPACITY, 0, GL_FALSE, 0, GL_READ_WRITE, GL_R32F);
+
+		//initilize opacity in shader (all 1.0f)
+		glBindTexture(GL_TEXTURE_2D, TEX_OPACITY);
+		glBindBuffer(GL_TEXTURE_BUFFER, SBO_OPACITY);
+		void *dataOpacity;
+		dataOpacity = (void *)glMapBuffer(GL_TEXTURE_BUFFER, GL_WRITE_ONLY);
+		assert(dataOpacity != nullptr);
+		memset(dataOpacity, 0x00, sizeof(float) * segmentNum);//non-zero value
+		glUnmapBuffer(GL_TEXTURE_BUFFER);
+		glBindTexture(GL_TEXTURE_2D, 0);
+		glFlush();
 
 		//GLsync sync = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
 		//glClientWaitSync(sync, 0, 1000000000);

@@ -75,7 +75,7 @@ struct ENG_MX
 		mxDestroyArray(mxData);
 	}
 
-	void putMxDataBool(const string name)
+	void putMxData(const string name)
 	{
 		engPutVariable(ep, name.c_str(), mxData);
 		mxDestroyArray(mxData);
@@ -87,16 +87,16 @@ struct ENG_MX
 //-----------
 struct ENG_CPP
 {
-	double coff[5] = {1.0f, 1.2f, 0.12f, 0.3f, 1.0f};//p, q, r, s, lambda
+	double coff[5] = {1.0f, 10.0f, 0.5f, 0.3f, 5.0f};//p, q, r, s, lambda
 	double **H = nullptr;
-	double **G = nullptr;
-	double **D = nullptr;
+	double *G = nullptr;
+	//double **D = nullptr;
 	double *Od = nullptr;//double type opacity (for MATLAB)
 	float *O = nullptr;//double type opacity (for shader)
 
 	bool flag = false;//to check if the opt solution is available
 
-	double** new2D(int num)
+	double** new2D(int num, double val)
 	{
 		double **arr = new double*[num];
 
@@ -104,7 +104,7 @@ struct ENG_CPP
 			arr[i] = new double[num];
 
 		for (int i = 0; i < num; ++i)
-			for (int j = 0; j < num; ++j) arr[i][j] = 0.0;
+			for (int j = 0; j < num; ++j) arr[i][j] = val;
 
 		return arr;
 	}
@@ -114,6 +114,16 @@ struct ENG_CPP
 		for (int i = 0; i < num; ++i) delete[] arr[i];
 		delete[] arr;
 		arr = nullptr;
+	}
+
+	void importanceLength(Mesh &mesh)//line size
+	{
+		double maxLineSize = 0.0;
+		for (int i = 0; i < (int)mesh.lines.size(); ++i)
+			maxLineSize = max(maxLineSize, (double)mesh.lines[i].size());
+		maxLineSize /= 0.95;
+		for (int i = 0; i < (int)mesh.segmentNum; ++i)
+			G[i] = (double)mesh.lines[i / mesh.segPerLine].size() / maxLineSize;
 	}
 }engCpp;
 
@@ -144,7 +154,7 @@ float lastX = SCR_WIDTH / 2.0f;
 float lastY = SCR_HEIGHT / 2.0f;
 bool firstMouse = true;
 glm::mat4 rotMat = glm::mat4(1.0f);
-float rotateHorizontal = 0.0f;
+float rotateHorizontal = 1.57f;
 float rotateVertical = 0.0f;
 // timing
 float deltaTime = 0.0f;
@@ -178,6 +188,8 @@ glm::vec4 listBuffer[MAX_FRAGMENT_NUM];
 //---------
 const double EPS = 1e-10;
 
+using namespace std;
+
 int main()
 {
 	// glfw: initialize and configure
@@ -210,7 +222,7 @@ int main()
 	{
 		std::cout << "Failed to initialize GLAD" << std::endl;
 		cin.get();
-		return -1;
+		return 0;
 	}
 
 	// configure global opengl state
@@ -219,6 +231,8 @@ int main()
 	//glEnable(GL_MULTISAMPLE);
 	//draw multiple instances using a single call
 	glEnable(GL_PRIMITIVE_RESTART);
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	glPrimitiveRestartIndex(RESTART_NUM);
 	glDisable(GL_DEPTH_TEST);
 	glDisable(GL_CULL_FACE);
@@ -233,16 +247,9 @@ int main()
 	// -----------
 	Mesh mesh("Data/flow_data/cyclone.obj");
 	//Mesh mesh("Data/flow_data/test.obj");
-
-	//GLint max_buffer_size;
-	//glGetIntegerv(GL_MAX_TEXTURE_BUFFER_SIZE, &max_buffer_size);
-	//cout << "The maximum texture buffer size is " << max_buffer_size << " bytes." << endl;
-
-	//GLint max_texture_number;
-	//glGetIntegerv(GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS, &max_texture_number);
-	//cout << "The maximum texture number is " << max_texture_number << endl;
 	
-	// open engine
+	//initialize MATLAB
+	//-----------------
 	cout << "Loading MATLAB engine..." << endl;
 	if (!(engMx.ep = engOpen("\0")))
 	{
@@ -255,93 +262,42 @@ int main()
 		cout << "Finished loading MATLAB engine." << endl << endl;
 	}
 
-	//flag to check if the opt solution is available
-	engMx.mxData = mxCreateLogicalScalar(true);
-	engMx.putMxDataBool("flag");
-
-	//transform coffients
+	//transfer coffients / segment number / segPerLine
 	engMx.mxData = mxCreateDoubleMatrix(1, 5, mxREAL);
 	engMx.putMxData1D("coff", engCpp.coff, 5);
 
-	//initilize matrxies
-	engCpp.H = engCpp.new2D(mesh.segmentNum);
-	engCpp.G = engCpp.new2D(mesh.segmentNum);
-	engCpp.D = engCpp.new2D(mesh.segmentNum);
-	//engCpp.H = new double[mesh.segmentNum * mesh.segmentNum];
-	//engCpp.G = new double[mesh.segmentNum * mesh.segmentNum];
-	//engCpp.D = new double[mesh.segmentNum * mesh.segmentNum];
-	//memset(engCpp.H, 0, sizeof(double) * mesh.segmentNum * mesh.segmentNum);
-	//memset(engCpp.G, 0, sizeof(double) * mesh.segmentNum * mesh.segmentNum);
-	//memset(engCpp.D, 0, sizeof(double) * mesh.segmentNum * mesh.segmentNum);
+	//transfer segment number
+	engMx.mxData = mxCreateDoubleScalar((double)mesh.segmentNum);
+	engMx.putMxData("segmentNum");
 
-	//initilize opacity
+	engMx.mxData = mxCreateDoubleScalar((double)mesh.segPerLine);
+	engMx.putMxData("segPerLine");	
+
+	//initilize matrxies
+	engCpp.H = engCpp.new2D(mesh.segmentNum, 0.0);
+	engCpp.G = new double[mesh.segmentNum];
 	engCpp.Od = new double[mesh.segmentNum];
 	engCpp.O = new float[mesh.segmentNum];
-	for (int i = 0; i < mesh.segmentNum; ++i)
-	{
-		engCpp.Od[i] = 1.0;
-		engCpp.O[i] = 1.0f;
-	}
 
-	//initilize opacity in shader (all 1.0f)
-	glBindTexture(GL_TEXTURE_2D, mesh.TEX_OPACITY);
-	glBindBuffer(GL_TEXTURE_BUFFER, mesh.SBO_OPACITY);
-	void *dataOpacity;
-	dataOpacity = (void *)glMapBuffer(GL_TEXTURE_BUFFER, GL_WRITE_ONLY);
-	if (dataOpacity == nullptr)
-	{
-		cout << "Init: null dataOpacity pointer" << endl;
-		cin.get();
-		return -1;
-	}
-	else
-	{
-		memcpy(dataOpacity, engCpp.O, sizeof(float) * mesh.segmentNum);
-	}
-	glUnmapBuffer(GL_TEXTURE_BUFFER);
-	glBindTexture(GL_TEXTURE_2D, 0);
-	glFlush();
-
-	//transfer opacity to MATLAB
-	engMx.mxData = mxCreateDoubleMatrix(1, mesh.segmentNum, mxREAL);
-	engMx.putMxData1D("O", engCpp.Od, mesh.segmentNum);
-
-	//compute matrix D and transfer it to MATLAB
-	for (int i = 0; i < (int)mesh.segmentNum; ++i)
-	{
-		if (i % mesh.segPerLine)
-		{
-			engCpp.D[i][i] += 1.0;
-			engCpp.D[i][i-1] += -1.0;
-		}
-	}
-	engMx.mxData = mxCreateDoubleMatrix(mesh.segmentNum, mesh.segmentNum, mxREAL);
-	engMx.putMxData2D("D", engCpp.D, mesh.segmentNum);
-	//for (int i = 0; i < mesh.segmentNum; ++i)
-	//{
-	//	for (int j = 0; j < mesh.segmentNum; ++j)
-	//		cout << engCpp.D[i][j] << ' ';
-	//	cout << endl;
-	//}
+	//initilize opacity
+	for (int i = 0; i < mesh.segmentNum; ++i) 
+		engCpp.Od[i] = 1.0, engCpp.O[i] = 1.0f;
 
 	//compute matrix G with line length, and transfer it to MATLAB
-	double maxLineSize = 0.0;
-	for (int i = 0; i < (int)mesh.lines.size(); ++i)
-		maxLineSize = max(maxLineSize, (double)mesh.lines[i].size());
-	for (int i = 0; i < (int)mesh.segmentNum; ++i)
-		engCpp.G[i][i] = (double)mesh.lines[i / 8].size() / maxLineSize;
-	engMx.mxData = mxCreateDoubleMatrix(mesh.segmentNum, mesh.segmentNum, mxREAL);
-	engMx.putMxData2D("G", engCpp.G, mesh.segmentNum);
+	engCpp.importanceLength(mesh);
+	engMx.mxData = mxCreateDoubleMatrix(1, mesh.segmentNum, mxREAL);
+	engMx.putMxData1D("G_diag", engCpp.G, mesh.segmentNum);
 
-	//for (int i = 0; i < mesh.lines.size(); ++i)
-	//	cout << "line " << i << " size: " << mesh.lines[i].size() << endl;
+	//init MATLAB script
+	engEvalString(engMx.ep, "init");
+
 	//cin.get();
 
 	// render loop
 	// -----------
 	int updateTimes = 0;
-	while (!glfwWindowShouldClose(window))
-	//for(int ti = 0; ti < 5; ++ti)
+	//while (!glfwWindowShouldClose(window))
+	for(int ti = 0; ti < 2; ++ti)
 	{
 		// per-frame time logic
 		// --------------------
@@ -370,37 +326,30 @@ int main()
 		glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT);
 
-		//engMx.mxData = mxCreateLogicalScalar(false);
+		engMx.mxData = mxCreateLogicalScalar(false);
 		engMx.getMxDataBool("flag", &engCpp.flag);
 		if (engCpp.flag)//compute new opacity
 		{
 			cout << "Update times: " << ++updateTimes << endl;
 			engMx.mxData = mxCreateLogicalScalar(false);
-			engMx.putMxDataBool("flag");
+			engMx.putMxData("flag");
 
-			//engMx.mxData = mxCreateDoubleMatrix(1, mesh.segmentNum, mxREAL);
 			engMx.getMxData1D("O", engCpp.Od, mesh.segmentNum);
 			for (int i = 0; i < (int)mesh.segmentNum; ++i)
 				engCpp.O[i] = (float)engCpp.Od[i];
 
-			//cout << "Finished get O from MATLAB" << endl;
+			cout << "Finished get O from MATLAB" << endl;			
 
+			glBindTexture(GL_TEXTURE_2D, mesh.TEX_OPACITY);
+			glBindBuffer(GL_TEXTURE_BUFFER, mesh.SBO_OPACITY);
 			void *dataOpacity;
+			assert(dataOpacity != nullptr);
 			dataOpacity = (void *)glMapBuffer(GL_TEXTURE_BUFFER, GL_WRITE_ONLY);
-			if (dataOpacity == nullptr)
-			{
-				cout << "null dataOpacity pointer" << endl;
-				cin.get();
-				return -1;
-			}
-			else
-			{
-				memcpy(dataOpacity, engCpp.O, sizeof(float) * mesh.segmentNum);
-			}
+			memcpy(dataOpacity, engCpp.O, sizeof(float) * mesh.segmentNum);
 			glUnmapBuffer(GL_TEXTURE_BUFFER);
 			glBindTexture(GL_TEXTURE_2D, 0);
 
-			glFlush();
+			//glFlush();
 
 			//cout << "Opacity has been transfered to GPU" << endl;
 
@@ -430,7 +379,7 @@ int main()
 			//Bind visit
 			glBindImageTexture(2, mesh.TEX_VISIT, 0, GL_FALSE, 0, GL_READ_WRITE, GL_R32UI);
 
-			glFlush();
+			//glFlush();
 
 			//cout << "Finished initializing head and list" << endl;
 
@@ -442,12 +391,14 @@ int main()
 
 			buildShader.setVec3("viewDirection", camera.Front);
 			buildShader.setMat4("modelViewProjectionMatrix", modelViewProjectionMatrix);
-			buildShader.setFloat("stripWidth", 2 * 2.0f / SCR_WIDTH);//strip width
+			buildShader.setFloat("stripWidth", 2 * 20.0f / SCR_WIDTH);//strip width
 			buildShader.setMat4("transform", rotMat);
 
 			mesh.Draw();
 
 			fragmentNum = readAtomicCounter(0);
+
+			cout << "fragment number" << fragmentNum << endl;
 
 			//cout << "done with build shader" << endl;
 
@@ -457,7 +408,7 @@ int main()
 
 			//matrixShader.setVec3("viewDirection", camera.Front);
 			//matrixShader.setMat4("modelViewProjectionMatrix", modelViewProjectionMatrix);
-			//matrixShader.setFloat("stripWidth", 2 * 2.0f / SCR_WIDTH);//strip width
+			//matrixShader.setFloat("stripWidth", 2 * 5.0f / SCR_WIDTH);//strip width
 			//matrixShader.setMat4("transform", rotMat);
 
 			//matrixShader.setInt("segmentNum", mesh.segmentNum);
@@ -470,56 +421,42 @@ int main()
 			glGetTexImage(GL_TEXTURE_2D, 0, GL_RED_INTEGER, GL_UNSIGNED_INT, (GLvoid*)0);
 			GLuint *dataHead;//for clear head pointers
 			dataHead = (GLuint *)glMapBuffer(GL_PIXEL_PACK_BUFFER, GL_READ_ONLY);
-			if (dataHead == nullptr)
-			{
-				cout << "null heads pointer" << endl;
-				cin.get();
-			}
-			else
-			{
-				memcpy(&headPointers[0][0], dataHead, sizeof(GLuint) * TOTAL_PIXELS);
-				//ofstream out("head.txt");
-				//for (int i = 0; i < SCR_HEIGHT; ++i)
-				//{
-				//	for (int j = 0; j < SCR_WIDTH; ++j)
-				//	{
-				//		out << headPointers[i][j] << '\t';
-				//	}
-				//	out << endl;
-				//}
-			}
+			assert(dataHead != nullptr);
+			memcpy(&headPointers[0][0], dataHead, sizeof(GLuint) * TOTAL_PIXELS);
+			//ofstream out("head.txt");
+			//for (int i = 0; i < SCR_HEIGHT; ++i)
+			//{
+			//	for (int j = 0; j < SCR_WIDTH; ++j)
+			//	{
+			//		out << headPointers[i][j] << '\t';
+			//	}
+			//	out << endl;
+			//}
 			glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
 			glBindTexture(GL_TEXTURE_2D, 0);
 
-			//cout << "Finished reading head pointers" << endl;
+			cout << "Finished reading head pointers" << endl;
 
 			//read list buffer
 			glBindTexture(GL_TEXTURE_2D, mesh.TEX_LIST);
 			glBindBuffer(GL_TEXTURE_BUFFER, mesh.SBO_LIST);
 			GLfloat *dataList;
 			dataList = (GLfloat *)glMapBuffer(GL_TEXTURE_BUFFER, GL_READ_ONLY);
-			if (dataList == nullptr)
+			assert(dataList != nullptr);
+			memcpy(listBuffer, dataList, fragmentNum * sizeof(glm::vec4));
+			int tmpNumber;
+			for (int i = 0; i < (int)fragmentNum; ++i)
 			{
-				cout << "null list buffer" << endl;
-				cin.get();
+				memcpy(&tmpNumber, &(listBuffer[i].x), sizeof(int));
+				listBuffer[i].x = (float)tmpNumber;
 			}
-			else
-			{
-				memcpy(listBuffer, dataList, fragmentNum * sizeof(glm::vec4));
-				int tmp;
-				for (int i = 0; i < (int)fragmentNum; ++i)
-				{
-					memcpy(&tmp, &(listBuffer[i].x), sizeof(int));
-					listBuffer[i].x = (float)tmp;
-				}
-				ofstream out("listbuffer.txt");
-				for (int i = 0; i < (int)fragmentNum; ++i)
-				{
-					memcpy(&tmp, &(listBuffer[i].x), sizeof(int));
-					out << i << '\t' << listBuffer[i].x << '\t' << listBuffer[i].y << '\t' << listBuffer[i].z << endl;
-				}
-				out.close();
-			}
+			//ofstream out("listbuffer.txt");
+			//for (int i = 0; i < (int)fragmentNum; ++i)
+			//{
+			//	memcpy(&tmp, &(listBuffer[i].x), sizeof(int));
+			//	out << i << '\t' << listBuffer[i].x << '\t' << listBuffer[i].y << '\t' << listBuffer[i].z << endl;
+			//}
+			//out.close();
 			glUnmapBuffer(GL_TEXTURE_BUFFER);
 			glBindTexture(GL_TEXTURE_2D, 0);
 
@@ -544,7 +481,7 @@ int main()
 						{
 							glm::vec4 &backNode = listBuffer[backIndex];
 							int segId2 = backNode.z;
-							if (curNode.y < backNode.y)
+							if (backNode.y > curNode.y)
 							{
 								double v = backNode.z - segId2;
 								engCpp.H[segId][segId2] += 1 - v;
@@ -569,7 +506,7 @@ int main()
 			for (int i = 0; i < (int)mesh.segmentNum; ++i)
 				for(int j = 0; j < (int)mesh.segmentNum; ++j)
 					maxH = max(maxH, engCpp.H[i][j]);
-
+			
 			if (maxH > EPS)
 			{
 				for (int i = 0; i < (int)mesh.segmentNum; ++i)
@@ -579,10 +516,13 @@ int main()
 			engMx.mxData = mxCreateDoubleMatrix(mesh.segmentNum, mesh.segmentNum, mxREAL);
 			engMx.putMxData2D("H", engCpp.H, mesh.segmentNum);
 
-			boost::thread asyncEvalString(&asyncEvalString);
+			//engEvalString(engMx.ep, "cd 'G:/MatlabWorkSpace/'");
+			engEvalString(engMx.ep, "solveOpacity");
+
+			//boost::thread asyncEvalString(&asyncEvalString);
 			//boost::this_thread::sleep(boost::posix_time::seconds(1));
 
-			cout << "Update 1 finished" << endl << endl;
+			cout << "Update finished" << endl << endl;
 		}
 
 		//3. final display
@@ -595,7 +535,7 @@ int main()
 
 		displayShader.setVec3("viewDirection", camera.Front);
 		displayShader.setMat4("modelViewProjectionMatrix", modelViewProjectionMatrix);
-		displayShader.setFloat("stripWidth", 2 * 2.0f / SCR_WIDTH);//strip width
+		displayShader.setFloat("stripWidth", 2 * 5.0f / SCR_WIDTH);//strip width
 		displayShader.setMat4("transform", rotMat);
 
 		mesh.Draw();
@@ -606,18 +546,17 @@ int main()
 		glfwPollEvents();
 		//break;
 	}
-	//std::cin.get();
+	std::cin.get();
 	// glfw: terminate, clearing all previously allocated GLFW resources.
 	// ------------------------------------------------------------------
 	glfwTerminate();
 
-	delete[] engCpp.H;
+	engCpp.del2D(engCpp.H, mesh.segmentNum);
 	delete[] engCpp.G;
-	delete[] engCpp.D;
 	delete[] engCpp.Od;
 	delete[] engCpp.O;
 
-	engClose(engMx.ep);
+	//engClose(engMx.ep);
 	return 0;
 }
 
