@@ -11,19 +11,39 @@
 
 #include <iostream>
 
-//#pragma comment(linker, "/HEAP:1500000000")
-
 #include <boost/thread.hpp>
 
 //MATLAB
-//------
 #include "engine.h"
 #pragma comment(lib, "libeng.lib")
 #pragma comment(lib, "libmx.lib")
 #pragma comment(lib, "libmat.lib")
 
+using namespace std;
+
+//constants
+const double EPS = 1e-10;
+
+//callbacks
+void framebuffer_size_callback(GLFWwindow* window, int width, int height);
+void mouse_callback(GLFWwindow* window, double xpos, double ypos);
+void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
+void processInput(GLFWwindow *window);
+
+//camera
+//-------
+Camera camera(glm::vec3(0.0f, 0.0f, 1.5f));
+float lastX = SCR_WIDTH / 2.0f;
+float lastY = SCR_HEIGHT / 2.0f;
+bool firstMouse = true;
+glm::mat4 rotMat = glm::mat4(1.0f);
+float rotateHorizontal = 1.57f;
+float rotateVertical = 0.0f;
+// timing
+float deltaTime = 0.0f;
+float lastFrame = 0.0f;
+
 //MATLAB data
-//-----------
 struct ENG_MX
 {
 	Engine *ep;//engine for MATLAB
@@ -84,7 +104,6 @@ struct ENG_MX
 }engMx;
 
 //C++ data for MATLAB
-//-----------
 struct ENG_CPP
 {
 	double coff[5] = {1.0f, 10.0f, 0.5f, 0.3f, 5.0f};//p, q, r, s, lambda
@@ -132,69 +151,20 @@ struct ENG_CPP
 	}
 }engCpp;
 
-void asyncEvalString()
-{
-	Engine* ep;
-	if (!(ep = engOpen("\0")))
-	{
-		fprintf(stderr, "Can't start another MATLAB engine\n");
-		cin.get();
-	}
-	engEvalString(ep, "cd 'G:/MatlabWorkSpace/'");
-	engEvalString(ep, "solveOpacity");
-}
-
-//callbacks
-//---------
-void framebuffer_size_callback(GLFWwindow* window, int width, int height);
-void mouse_callback(GLFWwindow* window, double xpos, double ypos);
-//void mouse_button_callback(GLFWwindow* window, int button, int action, int mods);
-void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
-void processInput(GLFWwindow *window);
-
-//camera
-//-------
-Camera camera(glm::vec3(0.0f, 0.0f, 1.5f));
-float lastX = SCR_WIDTH / 2.0f;
-float lastY = SCR_HEIGHT / 2.0f;
-bool firstMouse = true;
-glm::mat4 rotMat = glm::mat4(1.0f);
-float rotateHorizontal = 1.57f;
-float rotateVertical = 0.0f;
-// timing
-float deltaTime = 0.0f;
-float lastFrame = 0.0f;
+//multithread
+void asyncEvalString();
 
 //atomic counter
 //--------------
 //index == 0 -> list couter; index == 1 -> debug out
-GLuint readAtomicCounter(int index)
-{
-	GLuint *cnt;
-	cnt = (GLuint*)glMapBuffer(GL_ATOMIC_COUNTER_BUFFER, GL_READ_ONLY);
-	glUnmapBuffer(GL_ATOMIC_COUNTER_BUFFER);
-	return cnt[index];
-}
-
-void setAtomicCounter(int index, GLuint val)
-{
-	GLuint *cnt;
-	cnt = (GLuint*)glMapBuffer(GL_ATOMIC_COUNTER_BUFFER, GL_WRITE_ONLY);
-	cnt[index] = val;
-	glUnmapBuffer(GL_ATOMIC_COUNTER_BUFFER);
-}
+GLuint readAtomicCounter(int index);
+void setAtomicCounter(int index, GLuint val);
 
 //list data
-//---------
 GLuint headPointers[SCR_HEIGHT][SCR_WIDTH];
 glm::vec4 listBuffer[MAX_FRAGMENT_NUM];
 
-//constants
-//---------
-const double EPS = 1e-10;
-
-using namespace std;
-
+//init functions
 void initGlfw();
 void glfwWindowCreate(GLFWwindow* window);
 void openglConfig();
@@ -228,7 +198,7 @@ int main()
 	//-----------------
 	cout << "Loading MATLAB engine..." << endl;
 	assert((engMx.ep = engOpen("\0")) != nullptr);
-	cout << "Finished loading MATLAB engine." << endl << endl;
+	cout << "Finished loading MATLAB engine." << endl;
 
 	//transfer coffients / segment number / segPerLine
 	engMx.mxData = mxCreateDoubleMatrix(1, 5, mxREAL);
@@ -258,7 +228,7 @@ int main()
 
 	//init MATLAB script
 	engEvalString(engMx.ep, "init");
-
+	cout << "Finished init MATLAB data" << endl << endl;
 	//cin.get();
 
 	// render loop
@@ -273,19 +243,15 @@ int main()
 		deltaTime = currentFrame - lastFrame;
 		lastFrame = currentFrame;
 
-		// input
-		// -----
 		processInput(window);
 
-		// view/projection/model matrix
-		glm::mat4 projection, view, model, modelViewProjectionMatrix;
+		// view/projection/model/rotate matrix
+		glm::mat4 projection, view, model, modelViewProjectionMatrix, rotMat2;
 		projection = glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.001f, 5.0f);
 		view = camera.GetViewMatrix();
 		model = glm::translate(model, glm::vec3(0.0f, 0.0f, 0.0f)); // translate it down so it's at the center of the scene
 		model = glm::scale(model, glm::vec3(1.0f, 1.0f, 1.0f));	// it's a bit too big for our scene, so scale it down
 		modelViewProjectionMatrix = projection * view * model;
-		//rotate
-		glm::mat4 rotMat2;
 		rotMat2 = glm::rotate(rotMat2, rotateHorizontal, glm::vec3(0.0f, 1.0f, 0.0f));
 		rotMat2 = glm::rotate(rotMat2, rotateVertical, glm::vec3(1.0f, 0.0f, 0.0f));
 		rotateHorizontal = rotateVertical = 0.0f;
@@ -514,7 +480,7 @@ int main()
 		glfwPollEvents();
 		//break;
 	}
-	std::cin.get();
+
 	// glfw: terminate, clearing all previously allocated GLFW resources.
 	// ------------------------------------------------------------------
 	glfwTerminate();
@@ -523,8 +489,8 @@ int main()
 	delete[] engCpp.G;
 	delete[] engCpp.Od;
 	delete[] engCpp.O;
-
 	//engClose(engMx.ep);
+
 	return 0;
 }
 
@@ -563,6 +529,34 @@ void openglConfig()
 	glPrimitiveRestartIndex(RESTART_NUM);
 	glDisable(GL_DEPTH_TEST);
 	glDisable(GL_CULL_FACE);
+}
+
+void asyncEvalString()
+{
+	Engine* ep;
+	if (!(ep = engOpen("\0")))
+	{
+		fprintf(stderr, "Can't start another MATLAB engine\n");
+		cin.get();
+	}
+	engEvalString(ep, "cd 'G:/MatlabWorkSpace/'");
+	engEvalString(ep, "solveOpacity");
+}
+
+GLuint readAtomicCounter(int index)
+{
+	GLuint *cnt;
+	cnt = (GLuint*)glMapBuffer(GL_ATOMIC_COUNTER_BUFFER, GL_READ_ONLY);
+	glUnmapBuffer(GL_ATOMIC_COUNTER_BUFFER);
+	return cnt[index];
+}
+
+void setAtomicCounter(int index, GLuint val)
+{
+	GLuint *cnt;
+	cnt = (GLuint*)glMapBuffer(GL_ATOMIC_COUNTER_BUFFER, GL_WRITE_ONLY);
+	cnt[index] = val;
+	glUnmapBuffer(GL_ATOMIC_COUNTER_BUFFER);
 }
 
 // process all input: query GLFW whether relevant keys are pressed/released this frame and react accordingly
