@@ -191,12 +191,13 @@ int main()
 	// -------------------------
 	Shader buildShader("build.vs", "build.fs");
 	//Shader matrixShader("getMatrix.vs", "getMatrix.fs");
-	Shader displayShader("display.vs", "display.fs");
+	//Shader displayShader("display.vs", "display.fs");
+	Shader displayShader("resolve.vs", "resolve.fs");
 
 	// load models
 	// -----------
-	//Mesh mesh("Data/flow_data/cyclone.obj");
-	Mesh mesh("Data/flow_data/test.obj");
+	Mesh mesh("Data/flow_data/cyclone.obj");
+	//Mesh mesh("Data/flow_data/test.obj");
 	
 	//load MATLAB engine
 	//-----------------
@@ -223,7 +224,7 @@ int main()
 
 	//initilize opacity
 	for (int i = 0; i < mesh.segmentNum; ++i) 
-		engCpp.Od[i] = 1.0, engCpp.O[i] = 0.0f;
+		engCpp.Od[i] = 1.0, engCpp.O[i] = 1.0f;
 
 	//compute matrix G with line length, and transfer it to MATLAB
 	engCpp.importanceLength(mesh);
@@ -238,8 +239,8 @@ int main()
 	// render loop
 	// -----------
 	int updateTimes = 0;
-	while (!glfwWindowShouldClose(window))
-	//for(int ti = 0; ti < 2; ++ti)
+	//while (!glfwWindowShouldClose(window))
+	for(int ti = 0; ti < 2; ++ti)
 	{
 		// per-frame time logic
 		// --------------------
@@ -253,8 +254,7 @@ int main()
 		glm::mat4 projection, view, model, modelViewProjectionMatrix, rotMat2;
 		projection = glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.001f, 5.0f);
 		view = camera.GetViewMatrix();
-		model = glm::translate(model, glm::vec3(0.0f, 0.0f, 0.0f)); // translate it down so it's at the center of the scene
-		model = glm::scale(model, glm::vec3(1.0f, 1.0f, 1.0f));	// it's a bit too big for our scene, so scale it down
+		//model is vec4(1) here
 		modelViewProjectionMatrix = projection * view * model;
 		rotMat2 = glm::rotate(rotMat2, rotateHorizontal, glm::vec3(0.0f, 1.0f, 0.0f));
 		rotMat2 = glm::rotate(rotMat2, rotateVertical, glm::vec3(1.0f, 0.0f, 0.0f));
@@ -266,9 +266,9 @@ int main()
 
 		engMx.mxData = mxCreateLogicalScalar(false);
 		engMx.getMxDataBool("flag", &engCpp.flag);
-		if (engCpp.flag && (updateTimes % 100 == 0))//compute new opacity
+		//if (engCpp.flag)//compute new opacity
 		{
-			cout << "Update times: " << ++updateTimes << endl;
+			cout << "Update times: " << updateTimes << endl;
 			engMx.mxData = mxCreateLogicalScalar(false);
 			engMx.putMxData("flag");
 
@@ -284,37 +284,30 @@ int main()
 			glUnmapBuffer(GL_TEXTURE_BUFFER);
 			glBindTexture(GL_TEXTURE_2D, 0);
 			glFlush();
-			cout << "Opacity has been transfered to GPU" << endl;
 
 			resetGpuData(mesh);
 
 			GLuint fragmentNum = 0;
+
+			glEnable(GL_BLEND);
+			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
 			//1. build linked list
 			//--------------------
 			buildShader.use();
 			buildShader.setVec3("viewDirection", camera.Front);
 			buildShader.setMat4("modelViewProjectionMatrix", modelViewProjectionMatrix);
-			buildShader.setFloat("stripWidth", 2 * 10.0f / SCR_WIDTH);//strip width
+			buildShader.setFloat("stripWidth", 2 * 3.0f / SCR_WIDTH);//strip width
 			buildShader.setMat4("transform", rotMat);
+			buildShader.setMat4("model", model);
+			buildShader.setVec3("lightColor", glm::vec3(1.0f, 1.0f, 1.0f));
+			buildShader.setVec3("lightPos", glm::vec3(0.0f, 0.0f, 1.0f));
+			buildShader.setVec3("lineColor", glm::vec3(1.0f, 0.4f, 0.0f));
 			mesh.Draw();
 
 			fragmentNum = readAtomicCounter(0);
-
 			cout << fragmentNum << " fragments." << endl;
 
-			////2. compute matrix H
-			////-------------------
-			//matrixShader.use();
-
-			//matrixShader.setVec3("viewDirection", camera.Front);
-			//matrixShader.setMat4("modelViewProjectionMatrix", modelViewProjectionMatrix);
-			//matrixShader.setFloat("stripWidth", 2 * 5.0f / SCR_WIDTH);//strip width
-			//matrixShader.setMat4("transform", rotMat);
-
-			//matrixShader.setInt("segmentNum", mesh.segmentNum);
-
-			//mesh.Draw();
 
 			//read head pointers
 			glBindTexture(GL_TEXTURE_2D, mesh.TEX_HEADER);
@@ -359,27 +352,23 @@ int main()
 			glUnmapBuffer(GL_TEXTURE_BUFFER);
 			glBindTexture(GL_TEXTURE_2D, 0);
 
-			cout << "Finished reading head pointers and list buffer" << endl;
-
 			computeH(mesh);		
 			engMx.mxData = mxCreateDoubleMatrix(mesh.segmentNum, mesh.segmentNum, mxREAL);
 			engMx.putMxData2D("H", engCpp.H, mesh.segmentNum);
 
-			cout << "Finished computed H" << endl;
+			//cout << "Finished computed H" << endl;
 
-			//cout << "Start to opt..." << endl;
+			cout << "Start to opt..." << endl;
 			//engEvalString(engMx.ep, "solveOpacity");
 			//cout << "Update finished" << endl << endl;
 
-			boost::thread threadAsy(&asyncEvalString);
+			//boost::thread threadAsy(&asyncEvalString);
 			//boost::this_thread::sleep(boost::posix_time::seconds(1));
 		}
 
 		//3. final display
-		//glEnable(GL_DEPTH_TEST);
-		//glEnable(GL_CULL_FACE);
+		glDisable(GL_BLEND);
 		glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
-		//glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		glClear(GL_COLOR_BUFFER_BIT);
 		displayShader.use();
 
@@ -387,7 +376,6 @@ int main()
 		displayShader.setMat4("modelViewProjectionMatrix", modelViewProjectionMatrix);
 		displayShader.setFloat("stripWidth", 2 * 3.0f / SCR_WIDTH);//strip width
 		displayShader.setMat4("transform", rotMat);
-
 		mesh.Draw();
 
 		// glfw: swap buffers and poll IO events (keys pressed/released, mouse moved etc.)
@@ -441,8 +429,6 @@ void openglConfig()
 	//glEnable(GL_MULTISAMPLE);
 	//draw multiple instances using a single call
 	glEnable(GL_PRIMITIVE_RESTART);
-	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	glPrimitiveRestartIndex(RESTART_NUM);
 	glDisable(GL_DEPTH_TEST);
 	glDisable(GL_CULL_FACE);
@@ -453,6 +439,7 @@ void asyncEvalString()
 	Engine* ep;
 	assert((ep = engOpen("\0")) != nullptr);
 	engEvalString(ep, "solveOpacity");
+	cout << "opt finished" << endl << endl;
 }
 
 GLuint readAtomicCounter(int index)
