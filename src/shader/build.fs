@@ -1,12 +1,8 @@
 #version 460 core
 
-//layout (early_fragment_tests) in;
-
 layout (binding = 0, r32ui) uniform uimage2D headPointers;
 layout (binding = 1, rgba32ui) uniform uimageBuffer listBuffer;
-layout (binding = 2, r32ui) uniform uimage2D visit;
-layout (binding = 3, r32f) uniform imageBuffer opacityBuffer;
-
+layout (binding = 2, r32f) uniform imageBuffer opacityBuffer;
 
 layout(binding = 0, offset = 0) uniform atomic_uint listCounter;
 layout(binding = 0, offset = 4) uniform atomic_uint debugOut;

@@ -1,6 +1,6 @@
 #version 460 core
 
-layout (binding = 3, r32f) uniform imageBuffer opacityBuffer;
+layout (binding = 2, r32f) uniform imageBuffer opacityBuffer;
 
 layout (location = 0) out vec4 FragColor;
 

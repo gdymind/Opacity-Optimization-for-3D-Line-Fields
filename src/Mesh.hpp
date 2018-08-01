@@ -58,8 +58,8 @@ public:
 	GLuint SBO_LIST;//fragment storage buffer object
 	GLuint TEX_LIST;//linked list texture
 
-	GLuint TEX_VISIT;
-	GLuint PBO_SET_VISIT;
+	//GLuint TEX_VISIT;
+	//GLuint PBO_SET_VISIT;
 
 	GLuint SBO_OPACITY;
 	GLuint TEX_OPACITY;
@@ -115,7 +115,7 @@ private:
 			string type;//v vt g l
 			getline(ss, type, ' ');
 
-			//if (lines.size() == 500) break;
+			if (lines.size() == 500) break;
 
 			if (type == "v")//a vertex
 			{
@@ -257,8 +257,8 @@ private:
 		glGenBuffers(1, &SBO_LIST);
 		glGenTextures(1, &TEX_LIST);
 
-		glGenTextures(1, &TEX_VISIT);
-		glGenBuffers(1, &PBO_SET_VISIT);
+		//glGenTextures(1, &TEX_VISIT);
+		//glGenBuffers(1, &PBO_SET_VISIT);
 
 		glGenBuffers(1, &SBO_OPACITY);
 		glGenTextures(1, &TEX_OPACITY);
@@ -309,24 +309,24 @@ private:
 		glBindTexture(GL_TEXTURE_BUFFER, 0);
 		glBindImageTexture(1, TEX_LIST, 0, GL_FALSE, 0, GL_READ_WRITE, GL_RGBA32F);
 
-		//set TEX_VISIT: visit texture
-		glActiveTexture(GL_TEXTURE2);
-		glBindTexture(GL_TEXTURE_2D, TEX_VISIT);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-		//2D texture, level 0, 32-bit GLuint per texel, width, height, no border, single channel, GLuint, no data yet
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_R32UI, SCR_WIDTH, SCR_HEIGHT, 0, GL_RED_INTEGER, GL_UNSIGNED_INT, NULL);
-		glBindTexture(GL_TEXTURE_2D, 0);
-		//the image unit can be bound to a texture object/texture buffer object
-		//texture buffer object is a texture bound to a buffer object
-		glBindImageTexture(2, TEX_VISIT, 0, GL_FALSE, 0, GL_READ_WRITE, GL_R32UI);
+		////set TEX_VISIT: visit texture
+		//glActiveTexture(GL_TEXTURE2);
+		//glBindTexture(GL_TEXTURE_2D, TEX_VISIT);
+		//glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		//glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+		////2D texture, level 0, 32-bit GLuint per texel, width, height, no border, single channel, GLuint, no data yet
+		//glTexImage2D(GL_TEXTURE_2D, 0, GL_R32UI, SCR_WIDTH, SCR_HEIGHT, 0, GL_RED_INTEGER, GL_UNSIGNED_INT, NULL);
+		//glBindTexture(GL_TEXTURE_2D, 0);
+		////the image unit can be bound to a texture object/texture buffer object
+		////texture buffer object is a texture bound to a buffer object
+		//glBindImageTexture(2, TEX_VISIT, 0, GL_FALSE, 0, GL_READ_WRITE, GL_R32UI);
 
-		//set PBO_SET_VISIT: visit initializer
-		glBindBuffer(GL_PIXEL_UNPACK_BUFFER, PBO_SET_VISIT);
-		glBufferData(GL_PIXEL_UNPACK_BUFFER, TOTAL_PIXELS * sizeof(GLuint), NULL, GL_DYNAMIC_DRAW);
-		data = (GLuint *)glMapBuffer(GL_PIXEL_UNPACK_BUFFER, GL_READ_WRITE);
-		memset(data, 0x01, TOTAL_PIXELS * sizeof(GLuint));//non-zero value
-		glUnmapBuffer(GL_PIXEL_UNPACK_BUFFER);
+		////set PBO_SET_VISIT: visit initializer
+		//glBindBuffer(GL_PIXEL_UNPACK_BUFFER, PBO_SET_VISIT);
+		//glBufferData(GL_PIXEL_UNPACK_BUFFER, TOTAL_PIXELS * sizeof(GLuint), NULL, GL_DYNAMIC_DRAW);
+		//data = (GLuint *)glMapBuffer(GL_PIXEL_UNPACK_BUFFER, GL_READ_WRITE);
+		//memset(data, 0x01, TOTAL_PIXELS * sizeof(GLuint));//non-zero value
+		//glUnmapBuffer(GL_PIXEL_UNPACK_BUFFER);
 
 		//set SBO_OPACITY: opacity storage buffer object
 		glBindBuffer(GL_TEXTURE_BUFFER, SBO_OPACITY);
@@ -338,7 +338,7 @@ private:
 		glBindTexture(GL_TEXTURE_BUFFER, TEX_OPACITY);
 		glTexBuffer(GL_TEXTURE_BUFFER, GL_R32F, SBO_OPACITY);
 		glBindTexture(GL_TEXTURE_BUFFER, 0);
-		glBindImageTexture(3, TEX_OPACITY, 0, GL_FALSE, 0, GL_READ_WRITE, GL_R32F);
+		glBindImageTexture(2, TEX_OPACITY, 0, GL_FALSE, 0, GL_READ_WRITE, GL_R32F);
 
 		//initilize opacity in shader (all 1.0f)
 		glBindTexture(GL_TEXTURE_2D, TEX_OPACITY);

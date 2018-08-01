@@ -145,7 +145,7 @@ struct ENG_CPP
 			G[i] = (double)mesh.lines[i / mesh.segPerLine].size() / maxLineSize;
 		for (int i = 0; i < (int)mesh.segmentNum; ++i)
 			if (i < mesh.segmentNum / 2)
-				G[i] = .8;
+				G[i] = 0.8;
 			else
 				G[i] = 0.001;
 	}
@@ -168,6 +168,10 @@ glm::vec4 listBuffer[MAX_FRAGMENT_NUM];
 void initGlfw();
 void glfwWindowCreate(GLFWwindow* window);
 void openglConfig();
+
+
+void resetGpuData(Mesh &mesh);
+void computeH(Mesh &mesh);
 
 int main()
 {
@@ -262,7 +266,7 @@ int main()
 
 		engMx.mxData = mxCreateLogicalScalar(false);
 		engMx.getMxDataBool("flag", &engCpp.flag);
-		if (engCpp.flag)//compute new opacity
+		if (engCpp.flag && (updateTimes % 100 == 0))//compute new opacity
 		{
 			cout << "Update times: " << ++updateTimes << endl;
 			engMx.mxData = mxCreateLogicalScalar(false);
@@ -271,9 +275,6 @@ int main()
 			engMx.getMxData1D("O", engCpp.Od, mesh.segmentNum);
 			for (int i = 0; i < (int)mesh.segmentNum; ++i)
 				engCpp.O[i] = (float)engCpp.Od[i];
-
-			cout << "Finished get O from MATLAB" << endl;			
-
 			glBindTexture(GL_TEXTURE_2D, mesh.TEX_OPACITY);
 			glBindBuffer(GL_TEXTURE_BUFFER, mesh.SBO_OPACITY);
 			void *dataOpacity;
@@ -282,59 +283,25 @@ int main()
 			memcpy(dataOpacity, engCpp.O, sizeof(float) * mesh.segmentNum);
 			glUnmapBuffer(GL_TEXTURE_BUFFER);
 			glBindTexture(GL_TEXTURE_2D, 0);
+			glFlush();
+			cout << "Opacity has been transfered to GPU" << endl;
 
-			//glFlush();
-
-			//cout << "Opacity has been transfered to GPU" << endl;
-
-			// init work before building the linked list
-			// -----------------------------------------
-			//glDisable(GL_DEPTH_TEST);
-			//glDisable(GL_CULL_FACE);
-
-			//reset list counter
-			setAtomicCounter(0, 0);
-
-			//reset head pointer
-			glBindBuffer(GL_PIXEL_UNPACK_BUFFER, mesh.PBO_SET_HEAD);
-			glBindTexture(GL_TEXTURE_2D, mesh.TEX_HEADER);
-			glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, SCR_WIDTH, SCR_HEIGHT, GL_RED_INTEGER, GL_UNSIGNED_INT, NULL);
-			glBindTexture(GL_TEXTURE_2D, 0);
-
-			//reset visit
-			glBindBuffer(GL_PIXEL_UNPACK_BUFFER, mesh.PBO_SET_VISIT);
-			glBindTexture(GL_TEXTURE_2D, mesh.TEX_VISIT);
-			glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, SCR_WIDTH, SCR_HEIGHT, GL_RED_INTEGER, GL_UNSIGNED_INT, NULL);
-
-			//Bind head-pointer image
-			glBindImageTexture(0, mesh.TEX_HEADER, 0, GL_FALSE, 0, GL_READ_WRITE, GL_R32UI);
-			//Bind linked-list buffer
-			glBindImageTexture(1, mesh.TEX_LIST, 0, GL_FALSE, 0, GL_READ_WRITE, GL_RGBA32UI);
-			//Bind visit
-			glBindImageTexture(2, mesh.TEX_VISIT, 0, GL_FALSE, 0, GL_READ_WRITE, GL_R32UI);
-
-			//glFlush();
-
-			//cout << "Finished initializing head and list" << endl;
+			resetGpuData(mesh);
 
 			GLuint fragmentNum = 0;
 
 			//1. build linked list
 			//--------------------
 			buildShader.use();
-
 			buildShader.setVec3("viewDirection", camera.Front);
 			buildShader.setMat4("modelViewProjectionMatrix", modelViewProjectionMatrix);
 			buildShader.setFloat("stripWidth", 2 * 10.0f / SCR_WIDTH);//strip width
 			buildShader.setMat4("transform", rotMat);
-
 			mesh.Draw();
 
 			fragmentNum = readAtomicCounter(0);
 
-			cout << "fragment number" << fragmentNum << endl;
-
-			//cout << "done with build shader" << endl;
+			cout << fragmentNum << " fragments." << endl;
 
 			////2. compute matrix H
 			////-------------------
@@ -369,8 +336,6 @@ int main()
 			glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
 			glBindTexture(GL_TEXTURE_2D, 0);
 
-			cout << "Finished reading head pointers" << endl;
-
 			//read list buffer
 			glBindTexture(GL_TEXTURE_2D, mesh.TEX_LIST);
 			glBindBuffer(GL_TEXTURE_BUFFER, mesh.SBO_LIST);
@@ -394,69 +359,20 @@ int main()
 			glUnmapBuffer(GL_TEXTURE_BUFFER);
 			glBindTexture(GL_TEXTURE_2D, 0);
 
-			//cout << "Finished reading list buffer" << endl;
+			cout << "Finished reading head pointers and list buffer" << endl;
 
-			for (int i = 0; i < (int)mesh.segmentNum; ++i)
-				for (int j = 0; j < (int)mesh.segmentNum; ++j)
-					engCpp.H[i][j] = 0.0f;
-
-			for (int i = 0; i < (int)SCR_HEIGHT; ++i)
-			{
-				for (int j = 0; j < (int)SCR_WIDTH; ++j)
-				{
-					int curIndex = headPointers[i][j];
-					while (curIndex > EPS)
-					{
-						// x,y,z,w: next pointer, depth, weight, reserved
-						glm::vec4 &curNode = listBuffer[curIndex];
-						int segId = curNode.z;
-						int backIndex = curNode.x;
-						while (backIndex > EPS)
-						{
-							glm::vec4 &backNode = listBuffer[backIndex];
-							int segId2 = backNode.z;
-							if (backNode.y > curNode.y)
-							{
-								double v = backNode.z - segId2;
-								engCpp.H[segId][segId2] += 1 - v;
-								if(segId2 + 1 < mesh.segmentNum)
-									engCpp.H[segId][segId2 + 1] += v;
-							}
-							else
-							{
-								double v = curNode.z - segId;
-								engCpp.H[segId2][segId] += 1 - v;
-								if (segId + 1 < mesh.segmentNum)
-									engCpp.H[segId2][segId + 1] += v;
-							}
-							backIndex = backNode.x;
-						}
-						curIndex = curNode.x;
-					}
-				}
-			}
-
-			double maxH = 0.0;
-			for (int i = 0; i < (int)mesh.segmentNum; ++i)
-				for(int j = 0; j < (int)mesh.segmentNum; ++j)
-					maxH = max(maxH, engCpp.H[i][j]);
-			
-			if (maxH > EPS)
-			{
-				for (int i = 0; i < (int)mesh.segmentNum; ++i)
-					for (int j = 0; j < (int)mesh.segmentNum; ++j) engCpp.H[i][j] /= maxH;
-			}
-		
+			computeH(mesh);		
 			engMx.mxData = mxCreateDoubleMatrix(mesh.segmentNum, mesh.segmentNum, mxREAL);
 			engMx.putMxData2D("H", engCpp.H, mesh.segmentNum);
 
-			//engEvalString(engMx.ep, "cd 'G:/MatlabWorkSpace/'");
-			engEvalString(engMx.ep, "solveOpacity");
+			cout << "Finished computed H" << endl;
 
-			//boost::thread asyncEvalString(&asyncEvalString);
+			//cout << "Start to opt..." << endl;
+			//engEvalString(engMx.ep, "solveOpacity");
+			//cout << "Update finished" << endl << endl;
+
+			boost::thread threadAsy(&asyncEvalString);
 			//boost::this_thread::sleep(boost::posix_time::seconds(1));
-
-			cout << "Update finished" << endl << endl;
 		}
 
 		//3. final display
@@ -478,8 +394,9 @@ int main()
 		// -------------------------------------------------------------------------------
 		glfwSwapBuffers(window);
 		glfwPollEvents();
-		//break;
 	}
+
+	cin.get();
 
 	// glfw: terminate, clearing all previously allocated GLFW resources.
 	// ------------------------------------------------------------------
@@ -534,12 +451,7 @@ void openglConfig()
 void asyncEvalString()
 {
 	Engine* ep;
-	if (!(ep = engOpen("\0")))
-	{
-		fprintf(stderr, "Can't start another MATLAB engine\n");
-		cin.get();
-	}
-	engEvalString(ep, "cd 'G:/MatlabWorkSpace/'");
+	assert((ep = engOpen("\0")) != nullptr);
 	engEvalString(ep, "solveOpacity");
 }
 
@@ -557,6 +469,90 @@ void setAtomicCounter(int index, GLuint val)
 	cnt = (GLuint*)glMapBuffer(GL_ATOMIC_COUNTER_BUFFER, GL_WRITE_ONLY);
 	cnt[index] = val;
 	glUnmapBuffer(GL_ATOMIC_COUNTER_BUFFER);
+}
+
+void resetGpuData(Mesh &mesh)
+{
+	// init work before building the linked list
+	// -----------------------------------------
+	//reset list counter
+	setAtomicCounter(0, 0);
+
+	//reset head pointer
+	glBindBuffer(GL_PIXEL_UNPACK_BUFFER, mesh.PBO_SET_HEAD);
+	glBindTexture(GL_TEXTURE_2D, mesh.TEX_HEADER);
+	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, SCR_WIDTH, SCR_HEIGHT, GL_RED_INTEGER, GL_UNSIGNED_INT, NULL);
+	glBindTexture(GL_TEXTURE_2D, 0);
+
+	////reset visit
+	//glBindBuffer(GL_PIXEL_UNPACK_BUFFER, mesh.PBO_SET_VISIT);
+	//glBindTexture(GL_TEXTURE_2D, mesh.TEX_VISIT);
+	//glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, SCR_WIDTH, SCR_HEIGHT, GL_RED_INTEGER, GL_UNSIGNED_INT, NULL);
+
+	////Bind head-pointer image
+	//glBindImageTexture(0, mesh.TEX_HEADER, 0, GL_FALSE, 0, GL_READ_WRITE, GL_R32UI);
+	////Bind linked-list buffer
+	//glBindImageTexture(1, mesh.TEX_LIST, 0, GL_FALSE, 0, GL_READ_WRITE, GL_RGBA32UI);
+	////Bind visit
+	//glBindImageTexture(2, mesh.TEX_VISIT, 0, GL_FALSE, 0, GL_READ_WRITE, GL_R32UI);
+
+	glFlush();
+
+	cout << "Finished initializing GPU data" << endl;
+}
+
+void computeH(Mesh &mesh)
+{
+	for (int i = 0; i < (int)mesh.segmentNum; ++i)
+		for (int j = 0; j < (int)mesh.segmentNum; ++j)
+			engCpp.H[i][j] = 0.0f;
+
+	for (int i = 0; i < (int)SCR_HEIGHT; ++i)
+	{
+		for (int j = 0; j < (int)SCR_WIDTH; ++j)
+		{
+			int curIndex = headPointers[i][j];
+			while (curIndex > EPS)
+			{
+				// x,y,z,w: next pointer, depth, weight, reserved
+				glm::vec4 &curNode = listBuffer[curIndex];
+				int segId = curNode.z;
+				int backIndex = curNode.x;
+				while (backIndex > EPS)
+				{
+					glm::vec4 &backNode = listBuffer[backIndex];
+					int segId2 = backNode.z;
+					if (backNode.y > curNode.y)
+					{
+						double v = backNode.z - segId2;
+						engCpp.H[segId][segId2] += 1 - v;
+						if (segId2 + 1 < mesh.segmentNum)
+							engCpp.H[segId][segId2 + 1] += v;
+					}
+					else
+					{
+						double v = curNode.z - segId;
+						engCpp.H[segId2][segId] += 1 - v;
+						if (segId + 1 < mesh.segmentNum)
+							engCpp.H[segId2][segId + 1] += v;
+					}
+					backIndex = backNode.x;
+				}
+				curIndex = curNode.x;
+			}
+		}
+	}
+
+	double maxH = 0.0;
+	for (int i = 0; i < (int)mesh.segmentNum; ++i)
+		for (int j = 0; j < (int)mesh.segmentNum; ++j)
+			maxH = max(maxH, engCpp.H[i][j]);
+
+	if (maxH > EPS)
+	{
+		for (int i = 0; i < (int)mesh.segmentNum; ++i)
+			for (int j = 0; j < (int)mesh.segmentNum; ++j) engCpp.H[i][j] /= maxH;
+	}
 }
 
 // process all input: query GLFW whether relevant keys are pressed/released this frame and react accordingly
