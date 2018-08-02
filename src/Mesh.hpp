@@ -43,7 +43,7 @@ public:
 	vector<IndexType> lines;
 	IndexType indices;
 
-	int segPerLine = 8;
+	int segPerLine = 6;
 
 	int segmentNum = 1;
 
@@ -115,7 +115,7 @@ private:
 			string type;//v vt g l
 			getline(ss, type, ' ');
 
-			if (lines.size() == 500) break;
+			//if (lines.size() == 550) break;
 
 			if (type == "v")//a vertex
 			{
@@ -137,11 +137,26 @@ private:
 				//get the line vertices' indices
 				IndexType line;
 				unsigned int idx;
+
+				//first point
+				ss >> idx;
+				--idx;
+				line.push_back(idx * 2u);
+				line.push_back(idx * 2u + 1u);
+				//other points
 				while (ss >> idx)
 				{
 					--idx;
-					line.push_back(idx * 2u);
-					line.push_back(idx * 2u + 1u);
+					glm::vec3 v = vertices[line.back()].Position;
+					v -= vertices[idx * 2].Position;
+
+					//out << (float)glm::length(v) << endl;
+
+					if (glm::length(v) > 1e-6)
+					{
+						line.push_back(idx * 2u);
+						line.push_back(idx * 2u + 1u);
+					}
 				}
 				lines.push_back(line);
 
@@ -180,7 +195,7 @@ private:
 				glm::vec3 dir;
 				if (noLeft && noRight)
 				{
-					cout << "no left and no right" << endl;
+					//cout << "no left and no right" << endl;
 					dir = glm::vec3(0.0f);
 				}
 				else if (noLeft)
