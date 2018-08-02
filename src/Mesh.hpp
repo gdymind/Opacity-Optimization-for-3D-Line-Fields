@@ -20,7 +20,7 @@ using namespace std;
 
 const unsigned int RESTART_NUM = 0x5FFFFFu;//primitive restart number
 // settings
-const unsigned int SCR_WIDTH = 600;
+const unsigned int SCR_WIDTH = 900;
 const unsigned int SCR_HEIGHT = SCR_WIDTH;
 const unsigned int TOTAL_PIXELS = SCR_WIDTH * SCR_HEIGHT;
 const unsigned int MAX_FRAGMENT_NUM = 10000000;
@@ -343,10 +343,12 @@ private:
 		//initilize opacity in shader (all 1.0f)
 		glBindTexture(GL_TEXTURE_2D, TEX_OPACITY);
 		glBindBuffer(GL_TEXTURE_BUFFER, SBO_OPACITY);
-		void *dataOpacity;
-		dataOpacity = (void *)glMapBuffer(GL_TEXTURE_BUFFER, GL_WRITE_ONLY);
+		float *dataOpacity;
+		dataOpacity = (float *)glMapBuffer(GL_TEXTURE_BUFFER, GL_WRITE_ONLY);
 		assert(dataOpacity != nullptr);
-		memset(dataOpacity, 0x00, sizeof(float) * segmentNum);//non-zero value
+		for (int i = 0; i < segmentNum; ++i)
+			dataOpacity[i] = 1.0f;
+		//memset(dataOpacity, 0x00, sizeof(float) * segmentNum);//non-zero value
 		glUnmapBuffer(GL_TEXTURE_BUFFER);
 		glBindTexture(GL_TEXTURE_2D, 0);
 		glFlush();

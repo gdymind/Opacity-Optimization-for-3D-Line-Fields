@@ -106,7 +106,7 @@ struct ENG_MX
 //C++ data for MATLAB
 struct ENG_CPP
 {
-	double coff[5] = {1.0f, 10.0f, 0.5f, 0.3f, 5.0f};//p, q, r, s, lambda
+	double coff[5] = {1.0f, 2.0f, 0.2f, 0.3f, 7.0f};//p, q, r, s, lambda
 	double **H = nullptr;
 	double *G = nullptr;
 	//double **D = nullptr;
@@ -170,10 +170,14 @@ void initGlfw();
 void glfwWindowCreate(GLFWwindow* window);
 void openglConfig();
 
-
+//update related
+int updateTimes = 0;
+bool updateFlag = false;
+void updateOpacities(Mesh &mesh);
 void resetGpuData(Mesh &mesh);
 void readHeadAndList(Mesh &mesh);
 void computeH(Mesh &mesh);
+
 
 int main()
 {
@@ -240,9 +244,8 @@ int main()
 
 	// render loop
 	// -----------
-	int updateTimes = 0;
-	//while (!glfwWindowShouldClose(window))
-	for(int ti = 0; ti < 2; ++ti)
+	while (!glfwWindowShouldClose(window))
+	//for(int ti = 0; ti < 2; ++ti)
 	{
 		// per-frame time logic
 		// --------------------
@@ -266,60 +269,24 @@ int main()
 		glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT);
 
+		resetGpuData(mesh);
 
-		engMx.mxData = mxCreateLogicalScalar(false);
-		engMx.getMxDataBool("flag", &engCpp.flag);
-		//if (engCpp.flag)//compute new opacity
-		{
-			glDisable(GL_DEPTH_TEST);
+		//1. build linked list
+		//--------------------
+		glDisable(GL_DEPTH_TEST);
 
-			cout << "Update times: " << updateTimes << endl;
-			engMx.mxData = mxCreateLogicalScalar(false);
-			engMx.putMxData("flag");
+		buildShader.use();
+		buildShader.setVec3("viewDirection", camera.Front);
+		buildShader.setMat4("modelViewProjectionMatrix", modelViewProjectionMatrix);
+		buildShader.setFloat("stripWidth", 3.0f / SCR_WIDTH);//strip width
+		buildShader.setMat4("transform", rotMat);
+		buildShader.setMat4("model", model);
+		buildShader.setVec3("lightColor", glm::vec3(1.0f, 1.0f, 1.0f));
+		buildShader.setVec3("lightPos", glm::vec3(0.0f, 0.0f, 1.0f));
+		buildShader.setVec3("lineColor", glm::vec3(1.0f, 0.4f, 0.0f));
+		mesh.Draw();
 
-			engMx.getMxData1D("O", engCpp.Od, mesh.segmentNum);
-			for (int i = 0; i < (int)mesh.segmentNum; ++i)
-				engCpp.O[i] = (float)engCpp.Od[i];
-			glBindTexture(GL_TEXTURE_2D, mesh.TEX_OPACITY);
-			glBindBuffer(GL_TEXTURE_BUFFER, mesh.SBO_OPACITY);
-			void *dataOpacity;
-			assert(dataOpacity != nullptr);
-			dataOpacity = (void *)glMapBuffer(GL_TEXTURE_BUFFER, GL_WRITE_ONLY);
-			memcpy(dataOpacity, engCpp.O, sizeof(float) * mesh.segmentNum);
-			glUnmapBuffer(GL_TEXTURE_BUFFER);
-			glBindTexture(GL_TEXTURE_2D, 0);
-			glFlush();
-
-			resetGpuData(mesh);
-
-			//1. build linked list
-			//--------------------
-			buildShader.use();
-			buildShader.setVec3("viewDirection", camera.Front);
-			buildShader.setMat4("modelViewProjectionMatrix", modelViewProjectionMatrix);
-			buildShader.setFloat("stripWidth", 2 * 2.0f / SCR_WIDTH);//strip width
-			buildShader.setMat4("transform", rotMat);
-			buildShader.setMat4("model", model);
-			buildShader.setVec3("lightColor", glm::vec3(1.0f, 1.0f, 1.0f));
-			buildShader.setVec3("lightPos", glm::vec3(0.0f, 0.0f, 1.0f));
-			buildShader.setVec3("lineColor", glm::vec3(1.0f, 0.4f, 0.0f));
-			mesh.Draw();
-
-			readHeadAndList(mesh);
-
-			computeH(mesh);		
-			engMx.mxData = mxCreateDoubleMatrix(mesh.segmentNum, mesh.segmentNum, mxREAL);
-			engMx.putMxData2D("H", engCpp.H, mesh.segmentNum);
-			cout << "Finished computed H" << endl;
-
-			cout << "Start to opt..." << endl;
-			engEvalString(engMx.ep, "solveOpacity");
-			cout << "Update finished" << endl << endl;
-
-			//boost::thread threadAsy(&asyncEvalString);
-		}
-
-		//3. final display
+		//2. OIT render
 		glDisable(GL_BLEND);
 		glEnable(GL_DEPTH_TEST);
 		glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
@@ -328,7 +295,7 @@ int main()
 
 		displayShader.setVec3("viewDirection", camera.Front);
 		displayShader.setMat4("modelViewProjectionMatrix", modelViewProjectionMatrix);
-		displayShader.setFloat("stripWidth", 2 * 2.0f / SCR_WIDTH);//strip width
+		displayShader.setFloat("stripWidth", 3.0f / SCR_WIDTH);//strip width
 		displayShader.setMat4("transform", rotMat);
 		mesh.Draw();
 
@@ -336,9 +303,12 @@ int main()
 		// -------------------------------------------------------------------------------
 		glfwSwapBuffers(window);
 		glfwPollEvents();
+
+		if (updateFlag)
+			updateOpacities(mesh);
 	}
 
-	cin.get();
+	//cin.get();
 
 	// glfw: terminate, clearing all previously allocated GLFW resources.
 	// ------------------------------------------------------------------
@@ -439,7 +409,7 @@ void resetGpuData(Mesh &mesh)
 
 	glFlush();
 
-	cout << "Finished initializing GPU data" << endl;
+	//cout << "Finished initializing GPU data" << endl;
 }
 
 void readHeadAndList(Mesh &mesh)
@@ -554,6 +524,44 @@ void computeH(Mesh &mesh)
 		}
 }
 
+void updateOpacities(Mesh &mesh)
+{
+	//engMx.mxData = mxCreateLogicalScalar(false);
+	//engMx.getMxDataBool("flag", &engCpp.flag);
+	//engMx.mxData = mxCreateLogicalScalar(false);
+	//engMx.putMxData("flag");
+	updateFlag = false;
+
+	cout << "Update times: " << ++updateTimes << endl;
+
+	readHeadAndList(mesh);
+
+	computeH(mesh);
+	engMx.mxData = mxCreateDoubleMatrix(mesh.segmentNum, mesh.segmentNum, mxREAL);
+	engMx.putMxData2D("H", engCpp.H, mesh.segmentNum);
+	cout << "Finished computed H" << endl;
+
+	cout << "Start to opt..." << endl;
+	engEvalString(engMx.ep, "solveOpacity");
+	cout << "Update finished" << endl;
+	//boost::thread threadAsy(&asyncEvalString);
+
+	engMx.getMxData1D("O", engCpp.Od, mesh.segmentNum);
+	for (int i = 0; i < (int)mesh.segmentNum; ++i)
+		engCpp.O[i] = (float)engCpp.Od[i];
+	glBindTexture(GL_TEXTURE_2D, mesh.TEX_OPACITY);
+	glBindBuffer(GL_TEXTURE_BUFFER, mesh.SBO_OPACITY);
+	void *dataOpacity;
+	assert(dataOpacity != nullptr);
+	dataOpacity = (void *)glMapBuffer(GL_TEXTURE_BUFFER, GL_WRITE_ONLY);
+	memcpy(dataOpacity, engCpp.O, sizeof(float) * mesh.segmentNum);
+	glUnmapBuffer(GL_TEXTURE_BUFFER);
+	glBindTexture(GL_TEXTURE_2D, 0);
+	glFlush();
+
+	cout << "Opacities are submitted." << endl << endl;
+}
+
 // process all input: query GLFW whether relevant keys are pressed/released this frame and react accordingly
 // ---------------------------------------------------------------------------------------------------------
 void processInput(GLFWwindow *window)
@@ -569,6 +577,8 @@ void processInput(GLFWwindow *window)
 		camera.ProcessKeyboard(LEFT, deltaTime);
 	if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
 		camera.ProcessKeyboard(RIGHT, deltaTime);
+	if (glfwGetKey(window, GLFW_KEY_U) == GLFW_PRESS)
+		updateFlag = true;
 }
 
 // glfw: whenever the window size changed (by OS or user resize) this callback function executes
