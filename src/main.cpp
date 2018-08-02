@@ -135,7 +135,7 @@ struct ENG_CPP
 		arr = nullptr;
 	}
 
-	void importanceLength(Mesh &mesh)//line size
+	void importanceLength(Mesh &mesh)//line size;[0,0.95]
 	{
 		double maxLineSize = 0.0;
 		for (int i = 0; i < (int)mesh.lines.size(); ++i)
@@ -143,11 +143,11 @@ struct ENG_CPP
 		maxLineSize /= 0.95;
 		for (int i = 0; i < (int)mesh.segmentNum; ++i)
 			G[i] = (double)mesh.lines[i / mesh.segPerLine].size() / maxLineSize;
-		for (int i = 0; i < (int)mesh.segmentNum; ++i)
-			if (i < mesh.segmentNum / 2)
-				G[i] = 0.8;
-			else
-				G[i] = 0.001;
+		//for (int i = 0; i < (int)mesh.segmentNum; ++i)
+		//	if (i < mesh.segmentNum / 2)
+		//		G[i] = 0.8;
+		//	else
+		//		G[i] = 0.001;
 	}
 }engCpp;
 
@@ -161,6 +161,7 @@ GLuint readAtomicCounter(int index);
 void setAtomicCounter(int index, GLuint val);
 
 //list data
+GLuint fragmentNum = 0;
 GLuint headPointers[SCR_HEIGHT][SCR_WIDTH];
 glm::vec4 listBuffer[MAX_FRAGMENT_NUM];
 
@@ -171,6 +172,7 @@ void openglConfig();
 
 
 void resetGpuData(Mesh &mesh);
+void readHeadAndList(Mesh &mesh);
 void computeH(Mesh &mesh);
 
 int main()
@@ -239,8 +241,8 @@ int main()
 	// render loop
 	// -----------
 	int updateTimes = 0;
-	//while (!glfwWindowShouldClose(window))
-	for(int ti = 0; ti < 2; ++ti)
+	while (!glfwWindowShouldClose(window))
+	//for(int ti = 0; ti < 2; ++ti)
 	{
 		// per-frame time logic
 		// --------------------
@@ -264,10 +266,13 @@ int main()
 		glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT);
 
+
 		engMx.mxData = mxCreateLogicalScalar(false);
 		engMx.getMxDataBool("flag", &engCpp.flag);
 		//if (engCpp.flag)//compute new opacity
 		{
+			glDisable(GL_DEPTH_TEST);
+
 			cout << "Update times: " << updateTimes << endl;
 			engMx.mxData = mxCreateLogicalScalar(false);
 			engMx.putMxData("flag");
@@ -287,11 +292,6 @@ int main()
 
 			resetGpuData(mesh);
 
-			GLuint fragmentNum = 0;
-
-			glEnable(GL_BLEND);
-			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
 			//1. build linked list
 			//--------------------
 			buildShader.use();
@@ -305,71 +305,25 @@ int main()
 			buildShader.setVec3("lineColor", glm::vec3(1.0f, 0.4f, 0.0f));
 			mesh.Draw();
 
-			fragmentNum = readAtomicCounter(0);
-			cout << fragmentNum << " fragments." << endl;
+			//readHeadAndList(mesh);
 
+			//computeH(mesh);		
+			//engMx.mxData = mxCreateDoubleMatrix(mesh.segmentNum, mesh.segmentNum, mxREAL);
+			//engMx.putMxData2D("H", engCpp.H, mesh.segmentNum);
+			////cout << "Finished computed H" << endl;
 
-			//read head pointers
-			glBindTexture(GL_TEXTURE_2D, mesh.TEX_HEADER);
-			glBindBuffer(GL_PIXEL_PACK_BUFFER, mesh.PBO_READ_HEAD);
-			glGetTexImage(GL_TEXTURE_2D, 0, GL_RED_INTEGER, GL_UNSIGNED_INT, (GLvoid*)0);
-			GLuint *dataHead;//for clear head pointers
-			dataHead = (GLuint *)glMapBuffer(GL_PIXEL_PACK_BUFFER, GL_READ_ONLY);
-			assert(dataHead != nullptr);
-			memcpy(&headPointers[0][0], dataHead, sizeof(GLuint) * TOTAL_PIXELS);
-			//ofstream out("head.txt");
-			//for (int i = 0; i < SCR_HEIGHT; ++i)
-			//{
-			//	for (int j = 0; j < SCR_WIDTH; ++j)
-			//	{
-			//		out << headPointers[i][j] << '\t';
-			//	}
-			//	out << endl;
-			//}
-			glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
-			glBindTexture(GL_TEXTURE_2D, 0);
-
-			//read list buffer
-			glBindTexture(GL_TEXTURE_2D, mesh.TEX_LIST);
-			glBindBuffer(GL_TEXTURE_BUFFER, mesh.SBO_LIST);
-			GLfloat *dataList;
-			dataList = (GLfloat *)glMapBuffer(GL_TEXTURE_BUFFER, GL_READ_ONLY);
-			assert(dataList != nullptr);
-			memcpy(listBuffer, dataList, fragmentNum * sizeof(glm::vec4));
-			int tmpNumber;
-			for (int i = 0; i < (int)fragmentNum; ++i)
-			{
-				memcpy(&tmpNumber, &(listBuffer[i].x), sizeof(int));
-				listBuffer[i].x = (float)tmpNumber;
-			}
-			//ofstream out("listbuffer.txt");
-			//for (int i = 0; i < (int)fragmentNum; ++i)
-			//{
-			//	memcpy(&tmp, &(listBuffer[i].x), sizeof(int));
-			//	out << i << '\t' << listBuffer[i].x << '\t' << listBuffer[i].y << '\t' << listBuffer[i].z << endl;
-			//}
-			//out.close();
-			glUnmapBuffer(GL_TEXTURE_BUFFER);
-			glBindTexture(GL_TEXTURE_2D, 0);
-
-			computeH(mesh);		
-			engMx.mxData = mxCreateDoubleMatrix(mesh.segmentNum, mesh.segmentNum, mxREAL);
-			engMx.putMxData2D("H", engCpp.H, mesh.segmentNum);
-
-			//cout << "Finished computed H" << endl;
-
-			cout << "Start to opt..." << endl;
+			//cout << "Start to opt..." << endl;
 			//engEvalString(engMx.ep, "solveOpacity");
 			//cout << "Update finished" << endl << endl;
 
 			//boost::thread threadAsy(&asyncEvalString);
-			//boost::this_thread::sleep(boost::posix_time::seconds(1));
 		}
 
 		//3. final display
 		glDisable(GL_BLEND);
+		glEnable(GL_DEPTH_TEST);
 		glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
-		glClear(GL_COLOR_BUFFER_BIT);
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		displayShader.use();
 
 		displayShader.setVec3("viewDirection", camera.Front);
@@ -384,7 +338,7 @@ int main()
 		glfwPollEvents();
 	}
 
-	cin.get();
+	//cin.get();
 
 	// glfw: terminate, clearing all previously allocated GLFW resources.
 	// ------------------------------------------------------------------
@@ -476,16 +430,60 @@ void resetGpuData(Mesh &mesh)
 	//glBindTexture(GL_TEXTURE_2D, mesh.TEX_VISIT);
 	//glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, SCR_WIDTH, SCR_HEIGHT, GL_RED_INTEGER, GL_UNSIGNED_INT, NULL);
 
-	////Bind head-pointer image
-	//glBindImageTexture(0, mesh.TEX_HEADER, 0, GL_FALSE, 0, GL_READ_WRITE, GL_R32UI);
-	////Bind linked-list buffer
-	//glBindImageTexture(1, mesh.TEX_LIST, 0, GL_FALSE, 0, GL_READ_WRITE, GL_RGBA32UI);
+	//Bind head-pointer image
+	glBindImageTexture(0, mesh.TEX_HEADER, 0, GL_FALSE, 0, GL_READ_WRITE, GL_R32UI);
+	//Bind linked-list buffer
+	glBindImageTexture(1, mesh.TEX_LIST, 0, GL_FALSE, 0, GL_READ_WRITE, GL_RGBA32UI);
 	////Bind visit
 	//glBindImageTexture(2, mesh.TEX_VISIT, 0, GL_FALSE, 0, GL_READ_WRITE, GL_R32UI);
 
 	glFlush();
 
 	cout << "Finished initializing GPU data" << endl;
+}
+
+void readHeadAndList(Mesh &mesh)
+{
+	fragmentNum = readAtomicCounter(0);
+	cout << fragmentNum << " fragments." << endl;
+	//read head pointers
+	glBindTexture(GL_TEXTURE_2D, mesh.TEX_HEADER);
+	glBindBuffer(GL_PIXEL_PACK_BUFFER, mesh.PBO_READ_HEAD);
+	glGetTexImage(GL_TEXTURE_2D, 0, GL_RED_INTEGER, GL_UNSIGNED_INT, (GLvoid*)0);
+	GLuint *dataHead;//for clear head pointers
+	dataHead = (GLuint *)glMapBuffer(GL_PIXEL_PACK_BUFFER, GL_READ_ONLY);
+	assert(dataHead != nullptr);
+	memcpy(&headPointers[0][0], dataHead, sizeof(GLuint) * TOTAL_PIXELS);
+	//ofstream out("head.txt");
+	//for (int i = 0; i < SCR_HEIGHT; ++i)
+	//{
+	//	for (int j = 0; j < SCR_WIDTH; ++j)
+	//		out << headPointers[i][j] << '\t';
+	//	out << endl;
+	//}
+	//out.close();
+	glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
+	glBindTexture(GL_TEXTURE_2D, 0);
+
+	//read list buffer
+	glBindTexture(GL_TEXTURE_2D, mesh.TEX_LIST);
+	glBindBuffer(GL_TEXTURE_BUFFER, mesh.SBO_LIST);
+	GLfloat *dataList;
+	dataList = (GLfloat *)glMapBuffer(GL_TEXTURE_BUFFER, GL_READ_ONLY);
+	assert(dataList != nullptr);
+	memcpy(listBuffer, dataList, fragmentNum * sizeof(glm::vec4));
+	int tmpNumber;
+	for (int i = 0; i < (int)fragmentNum; ++i)
+	{
+		memcpy(&tmpNumber, &(listBuffer[i].x), sizeof(int));
+		listBuffer[i].x = (float)tmpNumber;
+	}
+	//ofstream out("listbuffer.txt");
+	//for (int i = 0; i < (int)fragmentNum; ++i)
+	//	out << i << '\t' << listBuffer[i].x << '\t' << listBuffer[i].y << '\t' << listBuffer[i].z << endl;
+	//out.close();
+	glUnmapBuffer(GL_TEXTURE_BUFFER);
+	glBindTexture(GL_TEXTURE_2D, 0);
 }
 
 void computeH(Mesh &mesh)
