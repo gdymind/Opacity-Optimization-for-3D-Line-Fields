@@ -37,8 +37,7 @@ float lastX = SCR_WIDTH / 2.0f;
 float lastY = SCR_HEIGHT / 2.0f;
 bool firstMouse = true;
 glm::mat4 rotMat = glm::mat4(1.0f);
-float rotateHorizontal = 1.57f;
-float rotateVertical = 0.0f;
+
 // timing
 float deltaTime = 0.0f;
 float lastFrame = 0.0f;
@@ -183,7 +182,7 @@ struct ENG_CPP
 
 	void importanceCurvature(Mesh &mesh)
 	{
-		//ofstream out("lr.txt");
+		ofstream out("lr.txt");
 		for (int i = 0; i < (int)mesh.segmentNum; ++i)
 		{
 			int j = i / mesh.segPerLine;
@@ -201,17 +200,29 @@ struct ENG_CPP
 			G[i] = 0.0;
 			for (int ii = l + 1; ii < r; ++ii)
 			{
-				glm::vec3 p1 = mesh.vertices[line[2 * (ii - 1)]].Position;
-				glm::vec3 p2 = mesh.vertices[line[2 * ii]].Position;
-				glm::vec3 p3 = mesh.vertices[line[2 * (ii + 1)]].Position;
+				glm::dvec3 p1 = mesh.vertices[line[2 * (ii - 1)]].Position;
+				glm::dvec3 p2 = mesh.vertices[line[2 * ii]].Position;
+				glm::dvec3 p3 = mesh.vertices[line[2 * (ii + 1)]].Position;
 
 				//Triangle p1-p2-p3
 				//Curvature: 4 times triangle area divided by the product of its three sides
-				double curv = 2 * glm::length(glm::cross(p2 - p1, p2 - p3));
-				curv /= sqrt(glm::length(p1-p2) * glm::length(p1-p3) * glm::length(p2-p3));
-				G[i] += curv;
-			}		
-			
+/*				double curv = 2 * glm::length(glm::cross(p2 - p1, p2 - p3));
+				double dd = sqrt(glm::length(p1 - p2) * glm::length(p1 - p3) * glm::length(p2 - p3));
+				if(dd > EPS) curv /= dd;
+				else cout << "same points" << endl;	*/			
+
+				
+
+				p1 = 1e100 * (p2 - p1);
+				p3 = 1e100 * (p3 - p2);
+				double angle;
+				double dd = glm::length(p1) * glm::length(p3);
+				angle = acos((double)glm::dot(p1, p3) / dd);
+
+				if (!isnan(angle))
+					G[i] += angle;
+					//G[i] += curv;
+			}
 		}
 
 		adjustImportance(mesh);
@@ -248,7 +259,10 @@ void computeH(Mesh &mesh);
 //parameters
 enum ImportanceType { LENGTH, CURVATURE };
 ImportanceType importMode = CURVATURE;
-double coff[5] = { 1.0f, 2.0f, 0.2f, 0.3f, 9.0f };//p, q, r, s, lambda
+double scaleH = 60;
+double coff[5] = { 1.0f, 0.6f, 0.3f, 0.3f, 3.0f };//p, q, r, s, lambda
+float rotateHorizontal = 0.1f;
+float rotateVertical = 0.0f;
 
 int main()
 {
@@ -271,7 +285,7 @@ int main()
 
 	// load models
 	// -----------
-	Mesh mesh("Data/flow_data/cyclone.obj");
+	Mesh mesh("Data/flow_data/cylinder.obj");
 	//Mesh mesh("Data/flow_data/test.obj");
 	
 	//load MATLAB engine
@@ -355,7 +369,7 @@ int main()
 		buildShader.setMat4("model", model);
 		buildShader.setVec3("lightColor", glm::vec3(1.0f, 1.0f, 1.0f));
 		buildShader.setVec3("lightPos", glm::vec3(0.0f, 0.0f, 1.0f));
-		buildShader.setVec3("lineColor", glm::vec3(1.0f, 0.4f, 0.0f));
+		buildShader.setVec3("lineColor", glm::vec3(0.9f, 0.4f, 0.0f));
 		mesh.Draw();
 
 		//2. OIT render
@@ -590,7 +604,7 @@ void computeH(Mesh &mesh)
 	for (int i = 0; i < (int)mesh.segmentNum; ++i)
 		for (int j = 0; j < (int)mesh.segmentNum; ++j)
 		{
-			engCpp.H[i][j] *= 100;
+			engCpp.H[i][j] *= scaleH;
 			if (engCpp.H[i][j] > 1.0)
 				engCpp.H[i][j] = 1.0;
 		}
