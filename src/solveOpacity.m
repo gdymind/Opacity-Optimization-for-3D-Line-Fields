@@ -2,10 +2,7 @@ H = H.';
 
 W = ((I-G)^coff(5)) * H * G;
 
-Q = coff(1) * I;
-Q = Q + coff(2) * (W * W.');
-Q = Q + coff(3) * (W.' * W);
-Q = Q + coff(4) * (D.' * D);
+Q = I + coff(2) * (W * W.') + coff(3) * (W.' * W) + coff(4) * (D.' * D);
 
 c = -1 * ones(segmentNum, 1);
 

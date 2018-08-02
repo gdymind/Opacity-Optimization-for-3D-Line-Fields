@@ -241,8 +241,8 @@ int main()
 	// render loop
 	// -----------
 	int updateTimes = 0;
-	while (!glfwWindowShouldClose(window))
-	//for(int ti = 0; ti < 2; ++ti)
+	//while (!glfwWindowShouldClose(window))
+	for(int ti = 0; ti < 2; ++ti)
 	{
 		// per-frame time logic
 		// --------------------
@@ -297,7 +297,7 @@ int main()
 			buildShader.use();
 			buildShader.setVec3("viewDirection", camera.Front);
 			buildShader.setMat4("modelViewProjectionMatrix", modelViewProjectionMatrix);
-			buildShader.setFloat("stripWidth", 2 * 3.0f / SCR_WIDTH);//strip width
+			buildShader.setFloat("stripWidth", 2 * 2.0f / SCR_WIDTH);//strip width
 			buildShader.setMat4("transform", rotMat);
 			buildShader.setMat4("model", model);
 			buildShader.setVec3("lightColor", glm::vec3(1.0f, 1.0f, 1.0f));
@@ -305,16 +305,16 @@ int main()
 			buildShader.setVec3("lineColor", glm::vec3(1.0f, 0.4f, 0.0f));
 			mesh.Draw();
 
-			//readHeadAndList(mesh);
+			readHeadAndList(mesh);
 
-			//computeH(mesh);		
-			//engMx.mxData = mxCreateDoubleMatrix(mesh.segmentNum, mesh.segmentNum, mxREAL);
-			//engMx.putMxData2D("H", engCpp.H, mesh.segmentNum);
-			////cout << "Finished computed H" << endl;
+			computeH(mesh);		
+			engMx.mxData = mxCreateDoubleMatrix(mesh.segmentNum, mesh.segmentNum, mxREAL);
+			engMx.putMxData2D("H", engCpp.H, mesh.segmentNum);
+			cout << "Finished computed H" << endl;
 
-			//cout << "Start to opt..." << endl;
-			//engEvalString(engMx.ep, "solveOpacity");
-			//cout << "Update finished" << endl << endl;
+			cout << "Start to opt..." << endl;
+			engEvalString(engMx.ep, "solveOpacity");
+			cout << "Update finished" << endl << endl;
 
 			//boost::thread threadAsy(&asyncEvalString);
 		}
@@ -328,7 +328,7 @@ int main()
 
 		displayShader.setVec3("viewDirection", camera.Front);
 		displayShader.setMat4("modelViewProjectionMatrix", modelViewProjectionMatrix);
-		displayShader.setFloat("stripWidth", 2 * 3.0f / SCR_WIDTH);//strip width
+		displayShader.setFloat("stripWidth", 2 * 2.0f / SCR_WIDTH);//strip width
 		displayShader.setMat4("transform", rotMat);
 		mesh.Draw();
 
@@ -338,7 +338,7 @@ int main()
 		glfwPollEvents();
 	}
 
-	//cin.get();
+	cin.get();
 
 	// glfw: terminate, clearing all previously allocated GLFW resources.
 	// ------------------------------------------------------------------
@@ -496,31 +496,35 @@ void computeH(Mesh &mesh)
 	{
 		for (int j = 0; j < (int)SCR_WIDTH; ++j)
 		{
+			int segId1, segId2;
+			double v;
+
 			int curIndex = headPointers[i][j];
 			while (curIndex > EPS)
 			{
-				// x,y,z,w: next pointer, depth, weight, reserved
+				// x,y,z,w: next pointer, depth, weight, color
 				glm::vec4 &curNode = listBuffer[curIndex];
-				int segId = curNode.z;
 				int backIndex = curNode.x;
 				while (backIndex > EPS)
 				{
 					glm::vec4 &backNode = listBuffer[backIndex];
-					int segId2 = backNode.z;
-					if (backNode.y > curNode.y)
+					if (curNode.y > backNode.y)//curNode is in front of backNode
 					{
-						double v = backNode.z - segId2;
-						engCpp.H[segId][segId2] += 1 - v;
-						if (segId2 + 1 < mesh.segmentNum)
-							engCpp.H[segId][segId2 + 1] += v;
+						segId1 = round(curNode.z);
+						segId2 = (int)backNode.z;
+						v = backNode.z - segId2;
 					}
 					else
 					{
-						double v = curNode.z - segId;
-						engCpp.H[segId2][segId] += 1 - v;
-						if (segId + 1 < mesh.segmentNum)
-							engCpp.H[segId2][segId + 1] += v;
+						segId1 = round(backNode.z);
+						segId2 = (int)curNode.z;
+						v = curNode.z - segId2;
 					}
+
+					engCpp.H[segId1][segId2] += 1 - v;
+					if (segId2 + 1 < mesh.segmentNum)
+						engCpp.H[segId1][segId2 + 1] += v;
+
 					backIndex = backNode.x;
 				}
 				curIndex = curNode.x;
@@ -538,6 +542,16 @@ void computeH(Mesh &mesh)
 		for (int i = 0; i < (int)mesh.segmentNum; ++i)
 			for (int j = 0; j < (int)mesh.segmentNum; ++j) engCpp.H[i][j] /= maxH;
 	}
+	else
+		cout << "maximum h <= 0" << endl;
+
+	for (int i = 0; i < (int)mesh.segmentNum; ++i)
+		for (int j = 0; j < (int)mesh.segmentNum; ++j)
+		{
+			engCpp.H[i][j] *= 100;
+			if (engCpp.H[i][j] > 1.0)
+				engCpp.H[i][j] = 1.0;
+		}
 }
 
 // process all input: query GLFW whether relevant keys are pressed/released this frame and react accordingly

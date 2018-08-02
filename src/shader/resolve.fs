@@ -52,7 +52,7 @@ void main(void)
 	}
 
 
-	vec4 finalColor = vec4(0.0);
+	vec4 finalColor = vec4(1.0);
 
 	for(uint i = 0; i < cnt; ++i)
 	{
