@@ -106,7 +106,6 @@ struct ENG_MX
 //C++ data for MATLAB
 struct ENG_CPP
 {
-	double coff[5] = {1.0f, 2.0f, 0.2f, 0.3f, 7.0f};//p, q, r, s, lambda
 	double **H = nullptr;
 	double *G = nullptr;
 	//double **D = nullptr;
@@ -135,6 +134,41 @@ struct ENG_CPP
 		arr = nullptr;
 	}
 
+	void clamp(int &x, int l, int r)
+	{
+		if (x < l) x = l;
+		if (x > r) x = r;
+	}
+
+	void clamp(double &x, double l, double r)
+	{
+		if (x < l) x = l;
+		if (x > r) x = r;
+	}
+
+	void adjustImportance(Mesh &mesh)
+	{
+		double *G2 = new double[mesh.segmentNum];
+		memcpy(G2, G, sizeof(double) * mesh.segmentNum);
+		sort(G2, G2 + mesh.segmentNum);
+
+		int id = mesh.segmentNum * 0.9;
+		clamp(id, (int)0, (int)mesh.segmentNum - 1);
+		double upper = G2[id];
+
+		if (upper > EPS)
+		{
+			for (int i = 0; i < (int)mesh.segmentNum; ++i)
+			{
+				G[i] /= upper;
+				clamp(G[i], 0.0, 1.0);
+			}
+		}
+		else if(upper < -EPS)
+			cout << "Maximum importance <= 0" << endl;
+		delete[] G2;
+	}
+
 	void importanceLength(Mesh &mesh)//line size;[0,0.95]
 	{
 		double maxLineSize = 0.0;
@@ -143,11 +177,44 @@ struct ENG_CPP
 		maxLineSize /= 0.95;
 		for (int i = 0; i < (int)mesh.segmentNum; ++i)
 			G[i] = (double)mesh.lines[i / mesh.segPerLine].size() / maxLineSize;
-		//for (int i = 0; i < (int)mesh.segmentNum; ++i)
-		//	if (i < mesh.segmentNum / 2)
-		//		G[i] = 0.8;
-		//	else
-		//		G[i] = 0.001;
+
+		adjustImportance(mesh);
+	}
+
+	void importanceCurvature(Mesh &mesh)
+	{
+		//ofstream out("lr.txt");
+		for (int i = 0; i < (int)mesh.segmentNum; ++i)
+		{
+			int j = i / mesh.segPerLine;
+			int k = i % mesh.segPerLine;
+
+			IndexType &line = mesh.lines[j];
+
+			//attention: line size is doubled
+			int realSize = line.size() / 2;
+			int l = round((float)k / mesh.segPerLine * realSize);
+			int r = round((float)(k + 1) / mesh.segPerLine * realSize);
+			clamp(l, 0, realSize - 1);
+			clamp(r, 0, realSize - 1);
+
+			G[i] = 0.0;
+			for (int ii = l + 1; ii < r; ++ii)
+			{
+				glm::vec3 p1 = mesh.vertices[line[2 * (ii - 1)]].Position;
+				glm::vec3 p2 = mesh.vertices[line[2 * ii]].Position;
+				glm::vec3 p3 = mesh.vertices[line[2 * (ii + 1)]].Position;
+
+				//Triangle p1-p2-p3
+				//Curvature: 4 times triangle area divided by the product of its three sides
+				double curv = 2 * glm::length(glm::cross(p2 - p1, p2 - p3));
+				curv /= sqrt(glm::length(p1-p2) * glm::length(p1-p3) * glm::length(p2-p3));
+				G[i] += curv;
+			}		
+			
+		}
+
+		adjustImportance(mesh);
 	}
 }engCpp;
 
@@ -178,6 +245,10 @@ void resetGpuData(Mesh &mesh);
 void readHeadAndList(Mesh &mesh);
 void computeH(Mesh &mesh);
 
+//parameters
+enum ImportanceType { LENGTH, CURVATURE };
+ImportanceType importMode = CURVATURE;
+double coff[5] = { 1.0f, 2.0f, 0.2f, 0.3f, 9.0f };//p, q, r, s, lambda
 
 int main()
 {
@@ -196,8 +267,6 @@ int main()
 	// build and compile shaders
 	// -------------------------
 	Shader buildShader("build.vs", "build.fs");
-	//Shader matrixShader("getMatrix.vs", "getMatrix.fs");
-	//Shader displayShader("display.vs", "display.fs");
 	Shader displayShader("resolve.vs", "resolve.fs");
 
 	// load models
@@ -213,7 +282,7 @@ int main()
 
 	//transfer coffients / segment number / segPerLine
 	engMx.mxData = mxCreateDoubleMatrix(1, 5, mxREAL);
-	engMx.putMxData1D("coff", engCpp.coff, 5);
+	engMx.putMxData1D("coff", coff, 5);
 
 	//transfer segment number
 	engMx.mxData = mxCreateDoubleScalar((double)mesh.segmentNum);
@@ -233,7 +302,10 @@ int main()
 		engCpp.Od[i] = 1.0, engCpp.O[i] = 1.0f;
 
 	//compute matrix G with line length, and transfer it to MATLAB
-	engCpp.importanceLength(mesh);
+	if (importMode == LENGTH)
+		engCpp.importanceLength(mesh);
+	else
+		engCpp.importanceCurvature(mesh);
 	engMx.mxData = mxCreateDoubleMatrix(1, mesh.segmentNum, mxREAL);
 	engMx.putMxData1D("G_diag", engCpp.G, mesh.segmentNum);
 
