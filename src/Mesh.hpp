@@ -43,7 +43,7 @@ public:
 	vector<IndexType> lines;
 	IndexType indices;
 
-	int segPerLine = 6;
+	int segPerLine = 8;
 
 	int segmentNum = 1;
 
@@ -69,13 +69,13 @@ public:
 
 	/*  Functions   */
 	// constructor, expects a filepath to a 3D model.
-	Mesh(std::string const &path)
+	void Init(std::string const &path)
 	{
 		cout << "Reading the model..." << endl;
 		loadModel(path);
 		cout << "Finished reading the model file." << endl;
 		cout << lines.size() << " lines." << endl;
-		cout << lines.size() * 8 << " segments" << endl;
+		cout << lines.size() * segPerLine << " segments" << endl;
 		cout << endl;
 		setupMesh();
 	}
@@ -238,7 +238,7 @@ private:
 			float startWeight = curWeight + 0.5f;
 			float endWeight = startWeight + segPerLine - 1.0f;
 			//assume there're no short lines
-			/*if (line.size() < 8)//no segmentation for short lines
+			/*if (line.size() < segPerLine)//no segmentation for short lines
 			{
 				cout << "short lines" << endl;
 				diff = 1.0f / line.size();
