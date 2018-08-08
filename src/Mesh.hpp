@@ -43,7 +43,7 @@ public:
 	vector<IndexType> lines;
 	IndexType indices;
 
-	int segPerLine = 8;
+	int segPerLine = 4;
 
 	int segmentNum = 1;
 

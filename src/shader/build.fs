@@ -21,7 +21,7 @@ in vec3 T;
 
 bool isCenter()
 {
-	return (abs(TexCoords.y - 0.5f) < 0.4f);
+	return (abs(TexCoords.y - 0.5f) < 0.35f);
 }
 
 vec4 setColor()
@@ -44,23 +44,24 @@ vec4 setColor()
 	    float VT = abs(dot(V, T));
 
 		// ambient
-	    vec3 ambient = 0.2 * lightColor;
+	    float ambient = 0.3;// * lightColor;
 
 	    // diffuse
-	    float diff = sqrt(1 - LT * LT);
-	    vec3 diffuse = diff * lightColor;
+	    float diffuse = sqrt(1 - LT * LT);
+	    //vec3 diffuse = diff * lightColor;
 
 	    //specular
-	    float spec = LT * VT - sqrt(1 - LT * LT) * sqrt(1 - VT * VT);
-	    spec = abs(spec);
-	    spec = pow(spec, 20);
-	    vec3 specular = spec * lightColor;
+	    float specular = LT * VT - sqrt(1 - LT * LT) * sqrt(1 - VT * VT);
+	    specular = abs(specular);
+	    specular = pow(specular, 64);
+	    //vec3 specular = spec * lightColor;
 
-	   	color = (ambient + diffuse) * lineColor + 0.8 * specular;
+	   	color = (ambient + 0.5 * diffuse) * lineColor + 0.7 * specular * lightColor;
+	   	color = clamp(color, vec3(0.0f, 0.0f, 0.0f), vec3(1.0f, 1.0f, 1.0f));
 		//color = lineColor;
 	}
 	else
-		color = vec3(0.0f, 0.0f, 0.0f);
+		color = vec3(0.1f, 0.1f, 0.1f);
 
 
     return vec4(color, opa);
@@ -71,7 +72,7 @@ void main(void)
 	if (isCenter())
 		gl_FragDepth = gl_FragCoord.z;
 	else
-		gl_FragDepth = gl_FragCoord.z - 0.0000001f  * abs(TexCoords.y - 0.5);
+		gl_FragDepth = gl_FragCoord.z;// - 0.00001f  * abs(TexCoords.y - 0.5);
 
 	uint index = atomicCounterIncrement(listCounter);
 	uint oldHead = imageAtomicExchange(headPointers, ivec2(gl_FragCoord.xy), index);

@@ -155,8 +155,6 @@ struct ENG_CPP
 		clamp(id, (int)0, (int)mesh.segmentNum - 1);
 		double upper = G2[id];
 
-		cout << "original max g: " << upper << endl;
-
 		if (upper > EPS)
 		{
 			for (int i = 0; i < (int)mesh.segmentNum; ++i)
@@ -221,15 +219,10 @@ struct ENG_CPP
 				double dd = glm::length(p1) * glm::length(p3);
 				angle = acos((double)glm::dot(p1, p3) / dd);
 
-				double sign = 1.0;
-				if (glm::cross(p1, p3).z < 0) sign = -1.0;
-
 				if (!isnan(angle))
-					G[i] += sign * angle;
+					G[i] += angle;
 					//G[i] += curv;
 			}
-			G[i] = abs(G[i]);
-			//G[i] /= line.size();
 		}
 
 		adjustImportance(mesh);
@@ -266,15 +259,12 @@ void computeH(Mesh &mesh);
 //parameters
 enum ImportanceType { LENGTH, CURVATURE };
 ImportanceType importMode = CURVATURE;
-double scaleH = 200;
-double coff[5] = { 1.0f, 2.0f, 0.52f, 0.3f, 5.0f };//p, q, r, s, lambda
-float rotateHorizontal = 1.5f;
-float rotateVertical = 0.1f;
+double scaleH = 60;
+double coff[5] = { 1.0f, 2.0f, 0.2f, 0.3f, 5.0f };//p, q, r, s, lambda
+float rotateHorizontal = 1.2f;
+float rotateVertical = 0.0f;
 
 Mesh mesh;
-
-bool reRender = true;
-
 
 int main()
 {
@@ -297,7 +287,7 @@ int main()
 
 	// load models
 	// -----------
-	mesh.Init("Data/flow_data/aneurysm.obj");
+	mesh.Init("Data/flow_data/cyclone.obj");
 	//Mesh mesh("Data/flow_data/test.obj");
 	
 	//load MATLAB engine
@@ -353,62 +343,65 @@ int main()
 
 		processInput(window);
 
-		//if (reRender)
-		{
-			reRender = false;
-			// view/projection/model/rotate matrix
-			glm::mat4 projection, view, model, modelViewProjectionMatrix, rotMat2;
-			projection = glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.001f, 5.0f);
-			view = camera.GetViewMatrix();
-			//model is vec4(1) here
-			modelViewProjectionMatrix = projection * view * model;
-			rotMat2 = glm::rotate(rotMat2, rotateHorizontal, glm::vec3(0.0f, 1.0f, 0.0f));
-			rotMat2 = glm::rotate(rotMat2, rotateVertical, glm::vec3(1.0f, 0.0f, 0.0f));
-			rotateHorizontal = rotateVertical = 0.0f;
-			rotMat = rotMat2 * rotMat;
-
-			glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
-			glClear(GL_COLOR_BUFFER_BIT);
-
-			resetGpuData(mesh);
-
-			//1. build linked list
-			//--------------------
-			glDisable(GL_DEPTH_TEST);
-
-			buildShader.use();
-			buildShader.setVec3("viewDirection", camera.Front);
-			buildShader.setMat4("modelViewProjectionMatrix", modelViewProjectionMatrix);
-			buildShader.setFloat("stripWidth", 4.0f / SCR_WIDTH);//strip width
-			buildShader.setMat4("transform", rotMat);
-			buildShader.setMat4("model", model);
-			buildShader.setVec3("lightColor", glm::vec3(1.0f, 1.0f, 1.0f));
-			buildShader.setVec3("lightPos", glm::vec3(0.0f, 0.0f, 1.0f));
-			buildShader.setVec3("lineColor", glm::vec3(0.9f, 0.4f, 0.0f));
-			mesh.Draw();
-
-			//2. OIT render
-			glDisable(GL_BLEND);
-			glEnable(GL_DEPTH_TEST);
-			glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
-			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-			displayShader.use();
-
-			displayShader.setVec3("viewDirection", camera.Front);
-			displayShader.setMat4("modelViewProjectionMatrix", modelViewProjectionMatrix);
-			displayShader.setFloat("stripWidth", 4.0f / SCR_WIDTH);//strip width
-			displayShader.setMat4("transform", rotMat);
-			mesh.Draw();
-
-			// glfw: swap buffers and poll IO events (keys pressed/released, mouse moved etc.)
-			// -------------------------------------------------------------------------------
-			glfwSwapBuffers(window);
-		}
-		glfwPollEvents();
-
+		// view/projection/model/rotate matrix
+		glm::mat4 projection, view, model, modelViewProjectionMatrix, rotMat2;
+		projection = glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.001f, 5.0f);
+		view = camera.GetViewMatrix();
+		//model is vec4(1) here
+		modelViewProjectionMatrix = projection * view * model;
+		rotMat2 = glm::rotate(rotMat2, rotateHorizontal, glm::vec3(0.0f, 1.0f, 0.0f));
+		rotMat2 = glm::rotate(rotMat2, rotateVertical, glm::vec3(1.0f, 0.0f, 0.0f));
+		rotateHorizontal = rotateVertical = 0.0f;
+		rotMat = rotMat2 * rotMat;
 
 		if (updateFlag)
+			glDisable(GL_MULTISAMPLE);
+
+		glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
+		glClear(GL_COLOR_BUFFER_BIT);
+
+		resetGpuData(mesh);
+
+		//1. build linked list
+		//--------------------
+		glDisable(GL_DEPTH_TEST);
+
+		buildShader.use();
+		buildShader.setVec3("viewDirection", camera.Front);
+		buildShader.setMat4("modelViewProjectionMatrix", modelViewProjectionMatrix);
+		buildShader.setFloat("stripWidth", 3.0f / SCR_WIDTH);//strip width
+		buildShader.setMat4("transform", rotMat);
+		buildShader.setMat4("model", model);
+		buildShader.setVec3("lightColor", glm::vec3(1.0f, 1.0f, 1.0f));
+		buildShader.setVec3("lightPos", glm::vec3(0.0f, 0.0f, 1.0f));
+		buildShader.setVec3("lineColor", glm::vec3(1.0f, 0.63f, 0.0f));
+		mesh.Draw();
+
+		if (updateFlag)
+		{
 			updateOpacities(mesh);
+			glfwPollEvents();
+			glEnable(GL_MULTISAMPLE);
+			continue;
+		}
+
+		//2. OIT render
+		glDisable(GL_BLEND);
+		glEnable(GL_DEPTH_TEST);
+		glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		displayShader.use();
+
+		displayShader.setVec3("viewDirection", camera.Front);
+		displayShader.setMat4("modelViewProjectionMatrix", modelViewProjectionMatrix);
+		displayShader.setFloat("stripWidth", 3.0f / SCR_WIDTH);//strip width
+		displayShader.setMat4("transform", rotMat);
+		mesh.Draw();
+
+		// glfw: swap buffers and poll IO events (keys pressed/released, mouse moved etc.)
+		// -------------------------------------------------------------------------------
+		glfwSwapBuffers(window);
+		glfwPollEvents();
 	}
 
 	//cin.get();
@@ -436,7 +429,7 @@ void initGlfw()
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 	//glfwWindowHint(GLFW_DECORATED, false);//remove title bar for debugging(otherwise the minimum width is too big)
-	//glfwWindowHint(GLFW_SAMPLES, 4);
+	glfwWindowHint(GLFW_SAMPLES, 4);
 }
 
 void glfwWindowCreate(GLFWwindow* window)
@@ -452,8 +445,8 @@ void openglConfig()
 {
 	// configure global opengl state
 	// -----------------------------
-	glDisable(GL_MULTISAMPLE);
-	//glEnable(GL_MULTISAMPLE);
+	//glDisable(GL_MULTISAMPLE);
+	glEnable(GL_MULTISAMPLE);
 	//draw multiple instances using a single call
 	glEnable(GL_PRIMITIVE_RESTART);
 	glPrimitiveRestartIndex(RESTART_NUM);
@@ -646,8 +639,8 @@ void updateOpacities(Mesh &mesh)
 
 	cout << "Start to opt..." << endl;
 	engEvalString(engMx.ep, "solveOpacity");
-	cout << "Update finished" << endl;
 	//boost::thread threadAsy(&asyncEvalString);
+	cout << "Update finished" << endl;
 
 	engMx.getMxData1D("O", engCpp.Od, mesh.segmentNum);
 	for (int i = 0; i < (int)mesh.segmentNum; ++i)
@@ -673,30 +666,15 @@ void processInput(GLFWwindow *window)
 		glfwSetWindowShouldClose(window, true);
 
 	if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
-	{
 		camera.ProcessKeyboard(FORWARD, deltaTime);
-		reRender = true;
-	}
 	if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
-	{
 		camera.ProcessKeyboard(BACKWARD, deltaTime);
-		reRender = true;
-	}
 	if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
-	{
 		camera.ProcessKeyboard(LEFT, deltaTime);
-		reRender = true;
-	}
 	if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
-	{
 		camera.ProcessKeyboard(RIGHT, deltaTime);
-		reRender = true;
-	}
 	if (glfwGetKey(window, GLFW_KEY_U) == GLFW_PRESS)
-	{
 		updateFlag = true;
-		reRender = true;
-	}
 }
 
 // glfw: whenever the window size changed (by OS or user resize) this callback function executes
@@ -711,7 +689,6 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height)
 void mouse_callback(GLFWwindow* window, double xpos, double ypos)
 {
 	bool mousePressed = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
-	reRender |= mousePressed;
 	if (mousePressed)
 	{
 		if (firstMouse)
