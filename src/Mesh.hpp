@@ -85,7 +85,7 @@ public:
 	{
 		// draw mesh
 		glBindVertexArray(VAO);
-		glDrawElements(GL_TRIANGLE_STRIP, indices.size(), GL_UNSIGNED_INT, 0);
+		glDrawElements(GL_TRIANGLE_STRIP, (GLsizei)indices.size(), GL_UNSIGNED_INT, 0);
 		glBindVertexArray(0);
 	}
 
@@ -253,7 +253,7 @@ private:
 			}
 		}
 
-		segmentNum = lines.size() * segPerLine;
+		segmentNum = (int)lines.size() * segPerLine;
 	}
 
 	void setupMesh()
