@@ -5,11 +5,11 @@ layout (location = 1) in vec3 aDirection;
 layout (location = 2) in vec2 aTexCoords;
 layout (location = 3) in float aWeight;
 
-uniform float stripWidth;
 uniform mat4 modelViewProjectionMatrix;
 uniform vec3 viewDirection;
 uniform mat4 transform;
 uniform mat4 model;
+uniform float stripWidth;
 
 out vec2 TexCoords;
 out float weight;

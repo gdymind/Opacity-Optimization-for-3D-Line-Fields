@@ -11,6 +11,7 @@ uniform int segmentNum;
 uniform vec3 lightPos;
 uniform vec3 lightColor;
 uniform vec3 lineColor;
+uniform float stripWidth;
 
 //layout (location = 0) out vec4 FragColor;
 
@@ -39,26 +40,23 @@ vec4 setColor()
 	{
 	    vec3 L = normalize(lightPos - FragPos);
 	    vec3 V = normalize(-FragPos);
-	    //vec3 V = viewDirection;
+	    // vec3 V = viewDirection;
 	    float LT = abs(dot(L, T));
 	    float VT = abs(dot(V, T));
 
 		// ambient
-	    float ambient = 0.3;// * lightColor;
+	    float ambient = 0.3;
 
 	    // diffuse
 	    float diffuse = sqrt(1 - LT * LT);
-	    //vec3 diffuse = diff * lightColor;
 
 	    //specular
 	    float specular = LT * VT - sqrt(1 - LT * LT) * sqrt(1 - VT * VT);
 	    specular = abs(specular);
 	    specular = pow(specular, 64);
-	    //vec3 specular = spec * lightColor;
 
 	   	color = (ambient + 0.5 * diffuse) * lineColor + 0.7 * specular * lightColor;
 	   	color = clamp(color, vec3(0.0f, 0.0f, 0.0f), vec3(1.0f, 1.0f, 1.0f));
-		//color = lineColor;
 	}
 	else
 		color = vec3(0.1f, 0.1f, 0.1f);
@@ -69,10 +67,9 @@ vec4 setColor()
 
 void main(void)
 {
-	if (isCenter())
-		gl_FragDepth = gl_FragCoord.z;
-	else
-		gl_FragDepth = gl_FragCoord.z;// - 0.00001f  * abs(TexCoords.y - 0.5);
+	if (isCenter()) gl_FragDepth = gl_FragCoord.z / gl_FragCoord.w;
+	//else gl_FragDepth = gl_FragCoord.z / gl_FragCoord.w;
+	else gl_FragDepth = (gl_FragCoord.z +  stripWidth * abs(TexCoords.y - 0.5)) / gl_FragCoord.w;
 
 	uint index = atomicCounterIncrement(listCounter);
 	uint oldHead = imageAtomicExchange(headPointers, ivec2(gl_FragCoord.xy), index);
